@@ -1,0 +1,13 @@
+name = "beeline-worker"
+main = "worker.js"
+compatibility_date = "2024-09-01"
+
+# Cloudflare KV binding for ephemeral book transfer:
+[[kv_namespaces]]
+binding = "BEELINE_KV"
+id = "153053ab55ce481396a0a32fff720b0e"
+
+# Optional R2 binding (uncomment if R2 is enabled on your Cloudflare account):
+# [[r2_buckets]]
+# binding = "BEELINE_BUCKET"
+# bucket_name = "beeline-inbox"

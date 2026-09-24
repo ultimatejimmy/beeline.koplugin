@@ -1,0 +1,17 @@
+{
+  "name": "beeline-worker",
+  "version": "1.0.0",
+  "description": "Zero-trust file transfer worker for KOReader",
+  "type": "module",
+  "main": "worker.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": ["koreader", "cloudflare-worker", "ebook-transfer", "zero-trust", "acsm"],
+  "author": "Beeline",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

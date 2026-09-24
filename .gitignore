@@ -1,0 +1,12 @@
+# Cloudflare Wrangler cache & state
+.wrangler/
+worker/.wrangler/
+
+# Dependencies
+node_modules/
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+*.swp
+*~

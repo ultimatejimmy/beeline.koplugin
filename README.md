@@ -60,12 +60,11 @@ For detailed guides and technical specifications, visit the [**Beeline Wiki**](h
 
 - [Installation & Gesture Bindings](https://github.com/ultimatejimmy/beeline.koplugin/wiki/1.-Installation)
 - [Usage & Pairing Workflow](https://github.com/ultimatejimmy/beeline.koplugin/wiki/2.-Usage)
-- [Supported Formats & Storage Organization](https://github.com/ultimatejimmy/beeline.koplugin/wiki/3.-File-Transfers-and-Formats)
-- [Architecture & Cryptographic Security Model](https://github.com/ultimatejimmy/beeline.koplugin/wiki/4.-Architecture-and-Security)
-- [Troubleshooting & Connection Verification](https://github.com/ultimatejimmy/beeline.koplugin/wiki/5.-Troubleshooting)
-- [Plugin Settings Reference](https://github.com/ultimatejimmy/beeline.koplugin/wiki/6.-Settings)
-- [Self-Hosting Your Own Cloudflare Worker](https://github.com/ultimatejimmy/beeline.koplugin/wiki/7.-Self-Hosting)
-- [Development, Test Suites & Crypto Verification](https://github.com/ultimatejimmy/beeline.koplugin/wiki/8.-Development-and-Testing)
+- [Architecture & Cryptographic Security Model](https://github.com/ultimatejimmy/beeline.koplugin/wiki/3.-Architecture-and-Security)
+- [Troubleshooting & Connection Verification](https://github.com/ultimatejimmy/beeline.koplugin/wiki/4.-Troubleshooting)
+- [Plugin Settings Reference](https://github.com/ultimatejimmy/beeline.koplugin/wiki/5.-Settings)
+- [Self-Hosting Your Own Cloudflare Worker](https://github.com/ultimatejimmy/beeline.koplugin/wiki/6.-Self-Hosting)
+- [Development, Test Suites & Crypto Verification](https://github.com/ultimatejimmy/beeline.koplugin/wiki/7.-Development-and-Testing)
 
 ---
 

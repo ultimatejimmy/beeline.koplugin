@@ -64,7 +64,6 @@ For detailed guides and technical specifications, visit the [**Beeline Wiki**](h
 - [Troubleshooting & Connection Verification](https://github.com/ultimatejimmy/beeline.koplugin/wiki/4.-Troubleshooting)
 - [Plugin Settings Reference](https://github.com/ultimatejimmy/beeline.koplugin/wiki/5.-Settings)
 - [Self-Hosting Your Own Cloudflare Worker](https://github.com/ultimatejimmy/beeline.koplugin/wiki/6.-Self-Hosting)
-- [Development, Test Suites & Crypto Verification](https://github.com/ultimatejimmy/beeline.koplugin/wiki/7.-Development-and-Testing)
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "beeline-worker",
-  "version": "1.0.0",
+  "version": "26.11.6",
   "description": "Zero-trust file transfer worker for KOReader",
   "type": "module",
   "main": "worker.js",

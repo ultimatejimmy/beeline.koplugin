@@ -1749,6 +1749,7 @@ function M.showSettingsDialog(plugin_instance, on_close_cb)
                         local email_dlg
                         email_dlg = InputDialog:new{
                             title = _("ByteBooks Email"),
+                            description = _("ByteBooks links fulfillment to your account so the same .acsm file can be read on multiple devices."),
                             input = acct_info.email or "",
                             buttons = {
                                 {
@@ -1829,7 +1830,7 @@ function M.showSettingsDialog(plugin_instance, on_close_cb)
 
             drm_dialog = M.showCardDialog{
                 title = _("ACSM Fulfillment Account"),
-                body_text = string.format("Account Mode: %s\nEmail: %s\nDevice Serial: %s\n\nAnonymous mode fulfills loans using a unique on-device ADEPT identity.\nByteBooks mode allows using your ByteBooks / Adobe ID credentials (passwords are never saved).",
+                body_text = string.format("Account Mode: %s\nEmail: %s\nDevice Serial: %s\n\n• Anonymous mode: Fulfills loans bound to this device only.\n• ByteBooks mode: Links fulfillment to your account so the same .acsm file can be read on multiple devices.\n\nPasswords are never saved on the device.",
                     acct_info.mode:upper(),
                     acct_info.email ~= "" and acct_info.email or "(none)",
                     acct_info.serial ~= "" and acct_info.serial or "(generated on first loan)"
@@ -1839,6 +1840,22 @@ function M.showSettingsDialog(plugin_instance, on_close_cb)
         end
 
         table.insert(content_vg, create_setting_row(_("ACSM Account Mode"), mode_right, showDrmAccountDialog))
+
+        local acsm_hint_text = TextBoxWidget:new{
+            text = _("ByteBooks allows the same .acsm file to be read on multiple devices."),
+            face = Font:getFace("cfont", math.max(11, (theme.subtext_font_size or 14) - 2)),
+            fgcolor = theme.color_label_dim,
+            width = inner_w - sc(12),
+        }
+        table.insert(content_vg, FrameContainer:new{
+            padding_left = sc(6),
+            padding_right = sc(6),
+            padding_top = sc(1),
+            padding_bottom = sc(4),
+            bordersize = 0,
+            width = inner_w,
+            acsm_hint_text,
+        })
 
         -- Default Loan Days Row
         local loan_days = State.getDrmDefaultLoanDays()

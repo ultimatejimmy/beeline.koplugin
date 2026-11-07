@@ -21,15 +21,15 @@ foreach ($item in $EnvList) {
 }
 
 # Determine plugin directory
-if (Test-Path "beeline/plugin/beeline.koplugin") {
+if (Test-Path "beeline.koplugin/plugin/beeline.koplugin") {
+    $PluginDir = "beeline.koplugin/plugin/beeline.koplugin"
+    $RepoRoot = "beeline.koplugin"
+} elseif (Test-Path "beeline/plugin/beeline.koplugin") {
     $PluginDir = "beeline/plugin/beeline.koplugin"
     $RepoRoot = "beeline"
 } elseif (Test-Path "plugin/beeline.koplugin") {
     $PluginDir = "plugin/beeline.koplugin"
     $RepoRoot = "."
-} elseif (Test-Path "beeline.koplugin") {
-    $PluginDir = "beeline.koplugin"
-    $RepoRoot = ".."
 } elseif (Test-Path "_meta.lua") {
     $PluginDir = "."
     $RepoRoot = "../.."
@@ -98,10 +98,73 @@ function Run-Workflow {
         node (Join-Path $specDir "test_crypto_roundtrip.js") > $null 2>&1
         $winRepoPath = (Get-Item $RepoRoot).FullName -replace '\\', '/'
         $wslRepoDir = (wsl wslpath -u $winRepoPath).Trim()
-        $luaTest = wsl bash -c "cd '$wslRepoDir' && luajit spec/test_beeline_crypto.lua" 2>&1
+        $luaTest = wsl bash -c "cd '$wslRepoDir' && /home/jimmy/squashfs-root/usr/lib/koreader/luajit spec/test_beeline_crypto.lua" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host " FAILED" -ForegroundColor Red
             Write-Host $luaTest
+            return $false
+        }
+        Write-Host " PASSED" -ForegroundColor Green
+    }
+
+    Write-Host "Running Beeline DRM & Autoclean tests in WSL LuaJIT..." -NoNewline
+    if (Test-Path (Join-Path $specDir "test_beeline_drm.lua")) {
+        $winRepoPath = (Get-Item $RepoRoot).FullName -replace '\\', '/'
+        $wslRepoDir = (wsl wslpath -u $winRepoPath).Trim()
+        $drmTest = wsl bash -c "cd '$wslRepoDir' && /home/jimmy/squashfs-root/usr/lib/koreader/luajit spec/test_beeline_drm.lua" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host " FAILED" -ForegroundColor Red
+            Write-Host $drmTest
+            return $false
+        }
+        Write-Host " PASSED" -ForegroundColor Green
+    }
+
+    Write-Host "Running Beeline Ephemeral ADEPT tests in WSL LuaJIT..." -NoNewline
+    if (Test-Path (Join-Path $specDir "test_beeline_ephemeral.lua")) {
+        $winRepoPath = (Get-Item $RepoRoot).FullName -replace '\\', '/'
+        $wslRepoDir = (wsl wslpath -u $winRepoPath).Trim()
+        $ephTest = wsl bash -c "cd '$wslRepoDir' && /home/jimmy/squashfs-root/usr/lib/koreader/luajit spec/test_beeline_ephemeral.lua" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host " FAILED" -ForegroundColor Red
+            Write-Host $ephTest
+            return $false
+        }
+        Write-Host " PASSED" -ForegroundColor Green
+    }
+
+    Write-Host "Running Beeline UI Toast & Refresh tests in WSL LuaJIT..." -NoNewline
+    if (Test-Path (Join-Path $specDir "test_beeline_ui_toast.lua")) {
+        $winRepoPath = (Get-Item $RepoRoot).FullName -replace '\\', '/'
+        $wslRepoDir = (wsl wslpath -u $winRepoPath).Trim()
+        $uiToastTest = wsl bash -c "cd '$wslRepoDir' && /home/jimmy/squashfs-root/usr/lib/koreader/luajit spec/test_beeline_ui_toast.lua" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host " FAILED" -ForegroundColor Red
+            Write-Host $uiToastTest
+            return $false
+        }
+        Write-Host " PASSED" -ForegroundColor Green
+    }
+
+    Write-Host "Running Translation unit tests (Python)..." -NoNewline
+    if (Test-Path (Join-Path $specDir "test_sync_translations.py")) {
+        $pyTest = python (Join-Path $specDir "test_sync_translations.py") 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host " FAILED" -ForegroundColor Red
+            Write-Host $pyTest
+            return $false
+        }
+        Write-Host " PASSED" -ForegroundColor Green
+    }
+
+    Write-Host "Running Beeline Localization tests in WSL Lua..." -NoNewline
+    if (Test-Path (Join-Path $specDir "test_beeline_localization.lua")) {
+        $winRepoPath = (Get-Item $RepoRoot).FullName -replace '\\', '/'
+        $wslRepoDir = (wsl wslpath -u $winRepoPath).Trim()
+        $locTest = wsl bash -c "cd '$wslRepoDir' && /usr/bin/lua spec/test_beeline_localization.lua" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host " FAILED" -ForegroundColor Red
+            Write-Host $locTest
             return $false
         }
         Write-Host " PASSED" -ForegroundColor Green
@@ -124,7 +187,7 @@ function Run-Workflow {
     # 4. Restart KOReader in WSL
     if (-not $NoRestart) {
         Write-Host "Restarting KOReader in WSL..." -ForegroundColor Cyan
-        wsl pkill -9 -f koreader 2>$null
+        wsl bash -c "killall -9 luajit reader.lua koreader 2>/dev/null; pkill -9 -f 'reader.lua|luajit|koreader' 2>/dev/null"
         Start-Sleep -Seconds 1
 
         $DefaultCmd = "C:\Windows\System32\wsl.exe --exec dbus-launch --exit-with-session bash -c `"/usr/bin/koreader`""

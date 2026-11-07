@@ -123,7 +123,7 @@ function M.loadSettings()
     end
 
     if s.background_sync == nil then
-        s.background_sync = true
+        s.background_sync = false
     end
 
     -- Persistent device identity
@@ -131,6 +131,38 @@ function M.loadSettings()
         s.device_id = _generateRandomHex(8)
     end
     s.active_codes = s.active_codes or {}
+    s.paired_browsers = s.paired_browsers or {}
+
+    -- Migration: If paired_browsers is empty but active_codes has entries,
+    -- preserve 1 paired browser entry (the latest non-pending code) and purge
+    -- the unused historical ephemeral codes.
+    local paired_count = 0
+    for _ in pairs(s.paired_browsers) do paired_count = paired_count + 1 end
+    if paired_count == 0 and s.active_codes then
+        local latest_norm, latest_entry = nil, nil
+        local cur_norm = s.pairing_code and s.pairing_code:upper():gsub("[%s%-]+", "")
+        for norm, v in pairs(s.active_codes) do
+            if norm ~= cur_norm and v and v.code then
+                if not latest_entry or (v.created_at and v.created_at > (latest_entry.created_at or 0)) then
+                    latest_norm = norm
+                    latest_entry = v
+                end
+            end
+        end
+        if latest_norm and latest_entry then
+            s.paired_browsers[latest_norm] = {
+                code = latest_entry.code,
+                paired_at = latest_entry.created_at or os.time(),
+            }
+            local cleaned_active = {}
+            cleaned_active[latest_norm] = latest_entry
+            if cur_norm then
+                cleaned_active[cur_norm] = { code = s.pairing_code, created_at = s.code_created_at }
+            end
+            s.active_codes = cleaned_active
+            _writeJson(_settingsPath(), s)
+        end
+    end
 
     -- Auto-generate or rotate pairing code if empty, legacy "BEE-", or expired
     local code_age = os.time() - (tonumber(s.code_created_at) or 0)
@@ -187,6 +219,14 @@ function M.getActiveCodes()
         local n = s.pairing_code:upper():gsub("[%s%-]+", "")
         seen[n] = true
     end
+    if s.paired_browsers then
+        for norm, v in pairs(s.paired_browsers) do
+            if not seen[norm] and v and v.code then
+                table.insert(list, v.code)
+                seen[norm] = true
+            end
+        end
+    end
     if s.active_codes then
         for norm, v in pairs(s.active_codes) do
             if not seen[norm] and v and v.code then
@@ -198,11 +238,40 @@ function M.getActiveCodes()
     return list
 end
 
+function M.addPairedBrowser(code)
+    if not code or code == "" then return end
+    local s = M.loadSettings()
+    local norm = code:upper():gsub("[%s%-]+", "")
+    s.paired_browsers = s.paired_browsers or {}
+    s.paired_browsers[norm] = {
+        code = code,
+        paired_at = os.time(),
+    }
+    s.active_codes = s.active_codes or {}
+    s.active_codes[norm] = {
+        code = code,
+        created_at = os.time(),
+    }
+    M.saveSettings(s)
+end
+
+function M.getPairedBrowserCount()
+    local s = M.loadSettings()
+    local count = 0
+    if s.paired_browsers then
+        for _ in pairs(s.paired_browsers) do
+            count = count + 1
+        end
+    end
+    return count
+end
+
 function M.unpairAllDevices()
     local s = M.loadSettings()
     local old_device_id = s.device_id or ""
     s.device_id = _generateRandomHex(8)
     s.active_codes = {}
+    s.paired_browsers = {}
     s.pairing_code = nil
     s.code_created_at = 0
     local new_code = M.generatePairingCode()
@@ -229,6 +298,7 @@ function M.generatePairingCode()
     local s = _cached_settings or {}
     s.pairing_code = code
     s.code_created_at = os.time()
+    -- Only register the current active code for decryption; do not falsely mark as paired
     s.active_codes = s.active_codes or {}
     s.active_codes[norm] = {
         code = code,
@@ -278,13 +348,200 @@ end
 
 function M.getBackgroundSync()
     local s = M.loadSettings()
-    return s.background_sync ~= false
+    return s.background_sync == true
 end
 
 function M.setBackgroundSync(enabled)
     local s = M.loadSettings()
     s.background_sync = (enabled == true)
     M.saveSettings(s)
+end
+
+-- ---------------------------------------------------------------------------
+-- ACSM / ADEPT DRM & Tracking State
+-- ---------------------------------------------------------------------------
+
+function M.getDrmConsentVersion()
+    local s = M.loadSettings()
+    return s.drm_consent_version
+end
+
+function M.setDrmConsentVersion(ver)
+    local s = M.loadSettings()
+    s.drm_consent_version = ver
+    M.saveSettings(s)
+end
+
+function M.getDrmActivation()
+    local s = M.loadSettings()
+    return s.drm_activation
+end
+
+function M.saveDrmActivation(activation_blob, mode, email)
+    local s = M.loadSettings()
+    s.drm_activation = activation_blob
+    s.drm_mode       = mode or "anonymous"
+    s.drm_account_email = email or ""
+    s.drm_updated_at = os.time()
+    return M.saveSettings(s)
+end
+
+function M.getDrmAccountInfo()
+    local s = M.loadSettings()
+    return {
+        activated = (s.drm_activation ~= nil),
+        mode      = s.drm_mode or "anonymous",
+        email     = s.drm_account_email or "",
+        serial    = s.drm_device_serial or "",
+        updated_at = s.drm_updated_at,
+    }
+end
+
+function M.clearDrmActivation()
+    local s = M.loadSettings()
+    s.drm_activation = nil
+    s.drm_mode       = "anonymous"
+    s.drm_account_email = nil
+    s.drm_updated_at = nil
+    return M.saveSettings(s)
+end
+
+function M.getDrmMode()
+    local s = M.loadSettings()
+    return s.drm_mode or "anonymous"
+end
+
+function M.setDrmMode(mode)
+    local s = M.loadSettings()
+    s.drm_mode = mode or "anonymous"
+    M.saveSettings(s)
+end
+
+function M.getDrmDeviceSerial()
+    local s = M.loadSettings()
+    return s.drm_device_serial
+end
+
+function M.setDrmDeviceSerial(serial)
+    local s = M.loadSettings()
+    s.drm_device_serial = serial
+    M.saveSettings(s)
+end
+
+function M.getDrmDefaultLoanDays()
+    local s = M.loadSettings()
+    return tonumber(s.drm_default_loan_days) or 21
+end
+
+function M.setDrmDefaultLoanDays(days)
+    local s = M.loadSettings()
+    s.drm_default_loan_days = tonumber(days) or 21
+    M.saveSettings(s)
+end
+
+function M.getDrmDeleteAcsmAfter()
+    -- Always delete ACSM after fulfillment (automatic, not configurable)
+    return true
+end
+
+function M.setDrmDeleteAcsmAfter(enabled)
+    local s = M.loadSettings()
+    s.drm_delete_acsm_after = true
+    M.saveSettings(s)
+end
+
+function M.getDrmKeepEncrypted()
+    -- Always keep ADEPT books encrypted on disk at rest (automatic, not configurable)
+    return true
+end
+
+function M.setDrmKeepEncrypted(enabled)
+    local s = M.loadSettings()
+    s.drm_keep_encrypted = true
+    M.saveSettings(s)
+end
+
+function M.getTrackedBooks()
+    local s = M.loadSettings()
+    return s.drm_tracked or {}
+end
+
+function M.getTrackedBook(path)
+    if not path or path == "" then return nil end
+    local s = M.loadSettings()
+    if not s.drm_tracked then return nil end
+
+    local ok_u, ffiUtil = pcall(require, "ffi/util")
+    local norm_path = (ok_u and ffiUtil and ffiUtil.realpath and ffiUtil.realpath(path)) or path
+    local basename = path:match("([^/\\]+)$")
+
+    for _, item in ipairs(s.drm_tracked) do
+        if item.path == path or item.path == norm_path then
+            return item
+        end
+        if basename and item.path and item.path:match("([^/\\]+)$") == basename then
+            return item
+        end
+    end
+    return nil
+end
+
+function M.isBookAdept(path)
+    local item = M.getTrackedBook(path)
+    if item and item.is_adept ~= nil then
+        return item.is_adept == true
+    end
+    return false
+end
+
+function M.trackBook(path, expires, title, extra)
+    if not path or path == "" then return false end
+    local s = M.loadSettings()
+    s.drm_tracked = s.drm_tracked or {}
+    
+    local found = false
+    for _, item in ipairs(s.drm_tracked) do
+        if item.path == path then
+            item.expires = expires
+            item.title = title or item.title
+            if type(extra) == "table" then
+                for k, v in pairs(extra) do
+                    item[k] = v
+                end
+            end
+            found = true
+            break
+        end
+    end
+    if not found then
+        local entry = {
+            path = path,
+            expires = expires,
+            title = title or "",
+            tracked_at = os.time(),
+        }
+        if type(extra) == "table" then
+            for k, v in pairs(extra) do
+                entry[k] = v
+            end
+        end
+        table.insert(s.drm_tracked, entry)
+    end
+    return M.saveSettings(s)
+end
+
+function M.untrackBook(path)
+    if not path or path == "" then return false end
+    local s = M.loadSettings()
+    if not s.drm_tracked then return true end
+    local new_tracked = {}
+    for _, item in ipairs(s.drm_tracked) do
+        if item.path ~= path then
+            table.insert(new_tracked, item)
+        end
+    end
+    s.drm_tracked = new_tracked
+    return M.saveSettings(s)
 end
 
 return M

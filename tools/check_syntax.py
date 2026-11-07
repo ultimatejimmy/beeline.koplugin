@@ -16,14 +16,41 @@ def check_syntax(directory):
         return False
 
     if ast is None:
-        # Fallback to luac or luajit -b if luaparser is not installed
+        import subprocess
+        # Fallback to luac, luajit, or wsl luajit -b if luaparser is not installed
         for f in lua_files:
-            ret = os.system(f"luac -p \"{f}\" >/dev/null 2>&1")
-            if ret != 0:
-                ret2 = os.system(f"luajit -b \"{f}\" /dev/null >/dev/null 2>&1")
-                if ret2 != 0:
-                    print(f"SYNTAX ERROR IN {f}")
-                    failed = True
+            passed = False
+            # Try luac
+            try:
+                res = subprocess.run(["luac", "-p", f], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if res.returncode == 0:
+                    passed = True
+            except FileNotFoundError:
+                pass
+
+            # Try local luajit
+            if not passed:
+                try:
+                    res = subprocess.run(["luajit", "-b", f, os.devnull], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if res.returncode == 0:
+                        passed = True
+                except FileNotFoundError:
+                    pass
+
+            # Try wsl luajit
+            if not passed:
+                try:
+                    # Convert path to WSL path
+                    wsl_path = subprocess.check_output(["wsl", "wslpath", "-u", os.path.abspath(f)]).decode().strip()
+                    res = subprocess.run(["wsl", "/usr/lib/koreader/luajit", "-b", wsl_path, "/dev/null"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if res.returncode == 0:
+                        passed = True
+                except Exception:
+                    pass
+
+            if not passed:
+                print(f"SYNTAX ERROR IN {f}")
+                failed = True
         return not failed
 
     for f in lua_files:

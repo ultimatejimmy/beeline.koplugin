@@ -1,0 +1,671 @@
+msgid ""
+msgstr ""
+"Language-Team: Simplified Chinese\n"
+"Language: zh_CN\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+# en-hash: f8182c2da85564a8f308c3e627944a72
+msgid "%d books added to your library"
+msgstr "已将 %d 本书添加到您的书库"
+
+# en-hash: 7a65032593f4ee141a1bb6af19528e5a
+msgid "%d books found in this folder"
+msgstr "在此文件夹中找到 %d 本书"
+
+# en-hash: 581981f0745b825ec8707452b36ba43f
+msgid "%d browser(s) paired"
+msgstr "已配对 %d 个浏览器"
+
+# en-hash: 9c7636fb7236f7556b646d7ac61c6be7
+msgid "%d days ›"
+msgstr "%d 天 ›"
+
+# en-hash: 1e74befcffb900933e47199fa5151e82
+msgid "%s\n%s"
+msgstr "%s\n%s"
+
+# en-hash: 4b87242a21ac5ce666c49ab26c58d414
+msgid "%s\nPlease download fresh token from Libby."
+msgstr "%s\n请从 Libby 下载最新的令牌。"
+
+# en-hash: 4bc56877a98a3b5f59735f579cf735a6
+msgid "+ New"
+msgstr "+ 新建"
+
+# en-hash: d28fdd75f93893891fb2d7e3b40683de
+msgid ".. (Parent Folder)"
+msgstr ".. (上级文件夹)"
+
+# en-hash: 2df82b37aebd0d97a8b30d11250695b0
+msgid "1. On phone/PC browser open:"
+msgstr "1. 在手机/电脑浏览器中打开："
+
+# en-hash: d7159e25344e5e5e77f9f7ae4e4b4d30
+msgid "2. Scan QR code or enter code:"
+msgstr "2. 扫描二维码或输入代码："
+
+# en-hash: 977a32d78bfb77da6b565781b86a3501
+msgid "ACSM Account Mode"
+msgstr "ACSM 账户模式"
+
+# en-hash: e8251a735359a90c4eeb1cf695e58da1
+msgid "ACSM Already Claimed"
+msgstr "ACSM 已认领"
+
+# en-hash: 4e87e21a9eb7e7f4fc6af7d498366906
+msgid "ACSM Already Fulfilled"
+msgstr "ACSM 已兑换"
+
+# en-hash: 7a1187e7974bdee8b76e2811ecd76cd3
+msgid "ACSM Book Fulfillment"
+msgstr "ACSM 图书兑换"
+
+# en-hash: fdcaf66578d92d175874d49f66f1585d
+msgid "ACSM Fulfillment Account"
+msgstr "ACSM 兑换账户"
+
+# en-hash: 99a378819e7aae24868bbcba25f40e79
+msgid "ACSM Fulfillment Failed"
+msgstr "ACSM 兑换失败"
+
+# en-hash: c4408d335012a56ff58937d78050efad
+msgid "Accept"
+msgstr "接受"
+
+# en-hash: 2f4c8a9c912b2baed6e4c67de9367a1b
+msgid "All browsers disconnected. New code: %s"
+msgstr "所有浏览器已断开连接。新代码：%s"
+
+# en-hash: d5a9446b9c5212716b05170a7942ff7b
+msgid "Anonymous (Default)"
+msgstr "匿名（默认）"
+
+# en-hash: 75729e957a6d4bdabddf0c45ba344362
+msgid "Authorization Failed"
+msgstr "授权失败"
+
+# en-hash: d312b8b25e43fdffaefc45b8c67797db
+msgid "Authorizing ByteBooks account..."
+msgstr "正在授权 ByteBooks 账户..."
+
+# en-hash: ef6dba839c9139cddb9581ad7eb5b62d
+msgid "Auto-Check on Wi-Fi"
+msgstr "在 Wi-Fi 下自动检查"
+
+# en-hash: 0557fa923dcee4d0f86b1409f5c2167f
+msgid "Back"
+msgstr "返回"
+
+# en-hash: 2f6901f317e9818f8dda744d59d1d3da
+msgid "Background Sync (30s)"
+msgstr "后台同步 (30s)"
+
+# en-hash: 9c2347d19c4b414c1a2df2435e182157
+msgid "Background sync enabled.\nWarning: Keeps Wi-Fi active and will increase battery drain."
+msgstr "已启用后台同步。\n警告：这会保持 Wi-Fi 处于活动状态并增加耗电量。"
+
+# en-hash: 0f7280ecaf0641f21f7597d312ccb087
+msgid "Battery Drain Warning"
+msgstr "耗电警告"
+
+# en-hash: 235a124c540b6c55544f00e5410cd04d
+msgid "Beeline"
+msgstr "Beeline"
+
+# en-hash: 93943a52c6c21a25dd476f58a22eb100
+msgid "Beeline Settings"
+msgstr "Beeline 设置"
+
+# en-hash: 1a21b87462640ead97a7f429a1933fa0
+msgid "Beeline can fulfill your library loans and purchased books on-device into EPUB or PDF.\n\n• For your personal use and your own loans/purchases only.\n• Fulfills directly on-device using Adobe / ByteBooks ADEPT protocols.\n• Expired loans are automatically cleaned up 1 day after expiry.\n\nDo you want to enable on-device ACSM fulfillment?"
+msgstr "Beeline 可以在设备上将您的图书馆借阅图书和已购图书兑换为 EPUB 或 PDF。\n\n• 仅供您个人使用及您本人的借阅/购买。\n• 直接在设备上使用 Adobe / ByteBooks ADEPT 协议兑换。\n• 过期借阅将在到期 1 天后自动清理。\n\n是否要启用设备端 ACSM 兑换？"
+
+# en-hash: 17f3f113aec71ebf22b6c1a4dee1e141
+msgid "Beeline: Check for Files"
+msgstr "Beeline：检查文件"
+
+# en-hash: b5703a29520caee2514ceb8c64e61e8b
+msgid "Beeline: Open Menu"
+msgstr "Beeline：打开菜单"
+
+# en-hash: 517dc0ed7ae3a84a235b6ab163aed293
+msgid "Beeline: Scan to Pair (QR Code)"
+msgstr "Beeline：扫码配对（二维码）"
+
+# en-hash: bf670ea14e532e2c118b0b2eb6830396
+msgid "Book Fulfilled"
+msgstr "图书已兑换"
+
+# en-hash: d21228dcf7a19f1bd6ece4fbd06a6aff
+msgid "Book Fulfilled!"
+msgstr "图书兑换成功！"
+
+# en-hash: 19943ac7aa8ccf77507a23573f438a0d
+msgid "ByteBooks Email"
+msgstr "ByteBooks 电子邮箱"
+
+# en-hash: a610f01b28bd49b4b4ed49c2926ca1eb
+msgid "ByteBooks Password"
+msgstr "ByteBooks 密码"
+
+# en-hash: e51e44d5e62d962aa3b0618179ade052
+msgid "ByteBooks activation successful!"
+msgstr "ByteBooks 激活成功！"
+
+# en-hash: ea4788705e6873b424c65e91c2846b19
+msgid "Cancel"
+msgstr "取消"
+
+# en-hash: 3851b923a1758c3591516a998245f584
+msgid "Check for Incoming Files"
+msgstr "检查收到的文件"
+
+# en-hash: d3d2e617335f08df83599665eef8a418
+msgid "Close"
+msgstr "关闭"
+
+# en-hash: 12f5688a81986b6e916b352e1c3baef1
+msgid "Cloudflare Worker URL"
+msgstr "Cloudflare Worker URL"
+
+# en-hash: f2f4b538fb502fb27ee3a32ac29cb4e6
+msgid "Code expired — tap New Code"
+msgstr "验证码已过期 — 点击“新验证码”"
+
+# en-hash: 05aa6a86d0b4b8814507727e46406b4b
+msgid "Code expired — tap below to regenerate"
+msgstr "验证码已过期 — 点击下方重新生成"
+
+# en-hash: 3ea029d689626e9521073d35cb1caeb7
+msgid "Code valid for %d min • Once paired, stays connected"
+msgstr "验证码有效时间 %d 分钟 • 配对后保持连接"
+
+# en-hash: 4188ecc8b9281f7cf8b0b477ef918329
+msgid "Code: %s"
+msgstr "验证码：%s"
+
+# en-hash: b269d20c229a7467ef26adaac06a886a
+msgid "Configuration Required"
+msgstr "需要配置"
+
+# en-hash: c2cc7082a89c1ad6631a2f66af5f00c0
+msgid "Connection"
+msgstr "连接"
+
+# en-hash: 78c182952076df476376efd9fb4e0d64
+msgid "Connection failed: %s"
+msgstr "连接失败：%s"
+
+# en-hash: e3cb24ddcf3e09b90e6cd3d778db8833
+msgid "Could not activate ByteBooks account:\n%s"
+msgstr "无法激活 ByteBooks 账户：\n%s"
+
+# en-hash: f372e32d6207a2406f7da8344444adc1
+msgid "Could not decrypt %d file(s).\nPlease make sure your pairing code matches the one entered on your phone or PC."
+msgstr "无法解密 %d 个文件。\n请确保您的配对码与手机或电脑上输入的一致。"
+
+# en-hash: 14a8442c7402d27fca56d2a0fc5929dc
+msgid "Could not fulfill loan book:\n%s"
+msgstr "无法兑换借阅图书：\n%s"
+
+# en-hash: b68b6955c919e3c4fdeadcb634cedee3
+msgid "Could not open ADEPT book:\n%s"
+msgstr "无法打开 ADEPT 图书：\n%s"
+
+# en-hash: 686e697538050e4664636337cc3b834f
+msgid "Create"
+msgstr "创建"
+
+# en-hash: 96cb7ae49077c528192c2bba40c42c69
+msgid "Create subfolder in '%s':"
+msgstr "在“%s”中创建子文件夹："
+
+# en-hash: e6818edb27f4a7711ea452befaa5efd4
+msgid "Created '%s'"
+msgstr "已创建“%s”"
+
+# en-hash: c6827130a95eb2bb7cde57fa9eaa7228
+msgid "Deauthorize"
+msgstr "解除授权"
+
+# en-hash: 833f33f31537101ae31dc82f6db629b8
+msgid "Deauthorized ByteBooks account"
+msgstr "已解除 ByteBooks 账户授权"
+
+# en-hash: 0d3627289b893d3eea08e52589ed06ae
+msgid "Decline"
+msgstr "拒绝"
+
+# en-hash: 0a4b33cc1fc4c21a5e073a500a9d2f92
+msgid "Decryption Failed"
+msgstr "解密失败"
+
+# en-hash: 35a125c4e45de54fa335a3c9b9ce6991
+msgid "Default Loan Duration (Days)"
+msgstr "默认借阅期限（天）"
+
+# en-hash: 4d052c2fc5c4fa9b49b9c80b2ce8842a
+msgid "Default Loan Expiry"
+msgstr "默认借阅到期"
+
+# en-hash: 5504412a54be68ca9d57aa33107e7050
+msgid "Destination Inbox"
+msgstr "目标收件箱"
+
+# en-hash: 180851948115adc035c850ea087730cb
+msgid "Device Pairing"
+msgstr "设备配对"
+
+# en-hash: 1dca4ea3608cf5dff42f2e5f902af6ae
+msgid "Disconnect All"
+msgstr "断开所有连接"
+
+# en-hash: 85779c512c86bb31769d44af3dcde699
+msgid "Disconnect All Browsers"
+msgstr "断开所有浏览器连接"
+
+# en-hash: 0a68f90bf1afe71549d3a73f5a0639d5
+msgid "Disconnect All Browsers (%d)"
+msgstr "断开所有浏览器连接 (%d)"
+
+# en-hash: 0f019677b95723cf79701a90e5b5a80e
+msgid "Disconnect All Browsers?"
+msgstr "确定要断开所有浏览器连接吗？"
+
+# en-hash: 907d49d6c7acb17e291a129548ec7c9c
+msgid "Downloaded to Library"
+msgstr "已下载到书库"
+
+# en-hash: 40278f12f281f13013ea838eed1ff3b2
+msgid "Enter full HTTPS endpoint of your Beeline Worker:"
+msgstr "输入您的 Beeline Worker 的完整 HTTPS 端点："
+
+# en-hash: 96310b2cf48706c28110688622ac2cf2
+msgid "Failed to create folder."
+msgstr "创建文件夹失败。"
+
+# en-hash: 51d2dc207ccdd8e5a508121fb3a6e753
+msgid "File Received!"
+msgstr "收到文件！"
+
+# en-hash: b0f2b97dc5d2b76b26e040408bb1d8af
+msgid "Folder"
+msgstr "文件夹"
+
+# en-hash: 3209c3b4980c680ddc7fe5d8550f9781
+msgid "Fulfilling %s..."
+msgstr "正在兑换 %s..."
+
+# en-hash: a1b9b944ced1ef233b011bb55fc6565d
+msgid "Fulfillment Failed"
+msgstr "兑换失败"
+
+# en-hash: ab5422d2490c96e3c78c4a04c435c11b
+msgid "Generate New Code"
+msgstr "生成新验证码"
+
+# en-hash: 332b4e3333280b9c26c04560cfe46051
+msgid "Inbox check failed: %s"
+msgstr "检查收件箱失败：%s"
+
+# en-hash: 449d896daa78a0f0936eeb20169f3c4c
+msgid "Inbox folder set to %s"
+msgstr "收件箱文件夹已设为 %s"
+
+# en-hash: 110443406b31d49014905d148fcd7465
+msgid "Incoming Transfer"
+msgstr "传入传输"
+
+# en-hash: a27f1aa5df1df87268c35c9c4170ef46
+msgid "Keep in Inbox"
+msgstr "保留在收件箱"
+
+# en-hash: 44ba9dda3d18af977c75549ad56f8d37
+msgid "Keeps Wi-Fi active every 30s; will noticeably increase battery drain."
+msgstr "每 30 秒保持 Wi-Fi 激活；会明显增加耗电量。"
+
+# en-hash: 680efe77af9792c99115435b8da7e45e
+msgid "Library Loans"
+msgstr "图书馆借阅"
+
+# en-hash: 25389d0a386cb05638cb2e4d85e0d6f3
+msgid "Loan Token Expired"
+msgstr "借阅令牌已过期"
+
+# en-hash: cfa9d2496c9f7596adc629f82dc5d986
+msgid "Loan token received. Open Beeline in Tools menu to fulfill."
+msgstr "已收到借阅令牌。请打开“工具”菜单中的 Beeline 以兑换。"
+
+# en-hash: 5148905edb46ca87df979cbb369c403d
+msgid "New Folder"
+msgstr "新建文件夹"
+
+# en-hash: 7f0e44a5c816176bf23f8b16897afedf
+msgid "New pairing code: %s"
+msgstr "新配对码：%s"
+
+# en-hash: 10ac3d04253ef7e1ddc73e6091c0cd55
+msgid "Next"
+msgstr "下一步"
+
+# en-hash: 0c33c65f26463f52d4420411a94d609d
+msgid "No browsers paired"
+msgstr "未配对浏览器"
+
+# en-hash: 3086da92de846e91bb2bfd976c73e47c
+msgid "No incoming files found."
+msgstr "未找到传入的文件。"
+
+# en-hash: 4911d39dfeb5093032e4317a04cef4c1
+msgid "No subfolders in this directory.\nTap 'Select Folder' below to use it, or '+ New' to create a subfolder."
+msgstr "此目录中没有子文件夹。\n点击下方的“选择文件夹”以使用它，或点击“+ 新建”创建子文件夹。"
+
+# en-hash: e0aa021e21dddbd6d8cecec71e9cf564
+msgid "OK"
+msgstr "确定"
+
+# en-hash: 49f9895dcd7b66149ea6e813d4d49fd8
+msgid "Open Folder"
+msgstr "打开文件夹"
+
+# en-hash: 7241976c15264867d2a6b1bf7e7b8211
+msgid "Open Now"
+msgstr "立即打开"
+
+# en-hash: b8065ad2628f1f82f3167af0947b3e43
+msgid "Page %d of %d"
+msgstr "第 %d 页，共 %d 页"
+
+# en-hash: fa4382679c51d9bab97e3643e220b3f7
+msgid "Please configure your Pairing Code and Worker URL in Beeline Settings before checking for files."
+msgstr "检查文件前，请在 Beeline 设置中配置您的配对码和 Worker URL。"
+
+# en-hash: 6be06f77fcc15057b556cdcc2a2d0578
+msgid "Please enter a valid number of days (1-365)"
+msgstr "请输入有效的天数 (1-365)"
+
+# en-hash: b01c670da5a9ff93d7bbbf7df96c022e
+msgid "QR code unavailable.\nPlease open in browser:\n"
+msgstr "无法显示二维码。\n请在浏览器中打开：\n"
+
+# en-hash: 96499a0eed32ce221945379fceabea88
+msgid "Received %d Books!"
+msgstr "已接收 %d 本书！"
+
+# en-hash: 2ddf1901daa864872df1d65691b3d1bb
+msgid "Received file %d of %d:\n%s"
+msgstr "正在接收文件 %d / %d：\n%s"
+
+# en-hash: 25a62005e5c674d743a61a895c8b5528
+msgid "Relay & Storage"
+msgstr "中继与存储"
+
+# en-hash: c9cc8cce247e49bae79f15173ce97354
+msgid "Save"
+msgstr "保存"
+
+# en-hash: f39c2a8ddc0bcb02b512fa6ba4126d47
+msgid "Scan to Pair"
+msgstr "扫码配对"
+
+# en-hash: 9b1226143d33242af4679bc062134be5
+msgid "Scan with your phone camera to pair instantly.\n%s"
+msgstr "使用手机相机扫描以立即配对。\n%s"
+
+# en-hash: e03107c5f320c880b61c546d0f6235af
+msgid "Select Download Folder"
+msgstr "选择下载文件夹"
+
+# en-hash: deffb03a57b0deaf912f04da4575848f
+msgid "Select Folder"
+msgstr "选择文件夹"
+
+# en-hash: 3d4b3f597d8ae47dd94e0976517e1622
+msgid "Select Inbox Folder"
+msgstr "选择收件箱文件夹"
+
+# en-hash: 6da9afa2cf39dd6c1d50a3d1d59f0a03
+msgid "Send ebook files and ACSM tokens wirelessly and securely to KOReader."
+msgstr "安全无线地向 KOReader 发送电子书文件和 ACSM 令牌。"
+
+# en-hash: f4f70727dc34561dfde1a3c529b6205c
+msgid "Settings"
+msgstr "设置"
+
+# en-hash: f2fdea440d768b85591e936a803c3631
+msgid "Sign In"
+msgstr "登录"
+
+# en-hash: 895ad58a520b0489e20f4fda56532e97
+msgid "Sign in to ByteBooks"
+msgstr "登录 ByteBooks"
+
+# en-hash: f8f280b167bea895f2b977d60fcad6a6
+msgid "Test & Save"
+msgstr "测试并保存"
+
+# en-hash: aa063de6e1aa0dd1b2c3f667ff9b8f99
+msgid "The loan token for '%s' has expired.\n\nPlease open Libby or your library website and click 'Download EPUB' again to generate a fresh token."
+msgstr "“%s”的借阅令牌已过期。\n\n请打开 Libby 或您的图书馆网站，然后再次点击“下载 EPUB”以生成新令牌。"
+
+# en-hash: 396dc2edd201ddef5c96fdc9fe26ede5
+msgid "This loan was already fulfilled by another user or device.\n(E_LIC_ALREADY_FULFILLED_BY_ANOTHER_USER)\n\nThe single-use token has been consumed and will not be re-checked."
+msgstr "此借阅已被其他用户或设备兑换。\n(E_LIC_ALREADY_FULFILLED_BY_ANOTHER_USER)\n\n单次使用的令牌已被消耗，将不再重新检查。"
+
+# en-hash: 5c52ea9db267688d355de81b5450f79b
+msgid "This will revoke all currently connected phones and computers. They will need a new pairing code to send books."
+msgstr "这将撤销所有当前连接的手机和电脑。它们需要新的配对码才能发送书籍。"
+
+# en-hash: 761a996d78e8555c48f6b526f7d1d993
+msgid "Token was already fulfilled on another device."
+msgstr "令牌已在其他设备上兑换。"
+
+# en-hash: 5d90aaf88429e98900e1b6892c838558
+msgid "Valid for %d min • Browsers stay paired permanently"
+msgstr "有效时间 %d 分钟 • 浏览器将永久保持配对状态"
+
+# en-hash: 477dd800a15c9149e236d29410280ca0
+msgid "Worker URL"
+msgstr "Worker URL"
+
+# en-hash: 7cdd7726fc6ac3374f50855f70f29688
+msgid "Worker connection verified!"
+msgstr "Worker 连接已验证！"
+
+# en-hash: 0ee6ac7b42a500ed457f726e29531aa3
+msgid "Would you like to open it now?"
+msgstr "要现在打开它吗？"
+
+# en-hash: 812c07d9322f521707d78da690f147f4
+msgid "Would you like to open the destination folder?"
+msgstr "要打开目标文件夹吗？"
+
+# en-hash: 17f3f113aec71ebf22b6c1a4dee1e141
+msgid "action_check_inbox"
+msgstr "Beeline：检查文件"
+
+# en-hash: b5703a29520caee2514ceb8c64e61e8b
+msgid "action_open_menu"
+msgstr "Beeline：打开菜单"
+
+# en-hash: 517dc0ed7ae3a84a235b6ab163aed293
+msgid "action_qr_code"
+msgstr "Beeline：扫码配对 (二维码)"
+
+# en-hash: 235a124c540b6c55544f00e5410cd04d
+msgid "beeline_title"
+msgstr "Beeline"
+
+# en-hash: c4408d335012a56ff58937d78050efad
+msgid "btn_accept"
+msgstr "接受"
+
+# en-hash: 0557fa923dcee4d0f86b1409f5c2167f
+msgid "btn_back"
+msgstr "返回"
+
+# en-hash: ea4788705e6873b424c65e91c2846b19
+msgid "btn_cancel"
+msgstr "取消"
+
+# en-hash: 3851b923a1758c3591516a998245f584
+msgid "btn_check_files"
+msgstr "检查传入的文件"
+
+# en-hash: d3d2e617335f08df83599665eef8a418
+msgid "btn_close"
+msgstr "关闭"
+
+# en-hash: c6827130a95eb2bb7cde57fa9eaa7228
+msgid "btn_deauthorize"
+msgstr "解除授权"
+
+# en-hash: 0d3627289b893d3eea08e52589ed06ae
+msgid "btn_decline"
+msgstr "拒绝"
+
+# en-hash: 1dca4ea3608cf5dff42f2e5f902af6ae
+msgid "btn_disconnect_all"
+msgstr "断开所有连接"
+
+# en-hash: 85779c512c86bb31769d44af3dcde699
+msgid "btn_disconnect_all_browsers"
+msgstr "断开所有浏览器连接"
+
+# en-hash: ab5422d2490c96e3c78c4a04c435c11b
+msgid "btn_generate_new_code"
+msgstr "生成新代码"
+
+# en-hash: a27f1aa5df1df87268c35c9c4170ef46
+msgid "btn_keep_in_inbox"
+msgstr "保留在收件箱中"
+
+# en-hash: a464c66c32987b168b831b97091fb0a7
+msgid "btn_new_code"
+msgstr "↻  新验证码"
+
+# en-hash: 10ac3d04253ef7e1ddc73e6091c0cd55
+msgid "btn_next"
+msgstr "下一步"
+
+# en-hash: e0aa021e21dddbd6d8cecec71e9cf564
+msgid "btn_ok"
+msgstr "确定"
+
+# en-hash: 49f9895dcd7b66149ea6e813d4d49fd8
+msgid "btn_open_folder"
+msgstr "打开文件夹"
+
+# en-hash: 7241976c15264867d2a6b1bf7e7b8211
+msgid "btn_open_now"
+msgstr "立即打开"
+
+# en-hash: c9cc8cce247e49bae79f15173ce97354
+msgid "btn_save"
+msgstr "保存"
+
+# en-hash: f4f70727dc34561dfde1a3c529b6205c
+msgid "btn_settings"
+msgstr "设置"
+
+# en-hash: f2fdea440d768b85591e936a803c3631
+msgid "btn_sign_in"
+msgstr "登录"
+
+# en-hash: f8f280b167bea895f2b977d60fcad6a6
+msgid "btn_test_save"
+msgstr "测试并保存"
+
+# en-hash: 235a124c540b6c55544f00e5410cd04d
+msgid "menu_beeline"
+msgstr "Beeline"
+
+# en-hash: 7a65032593f4ee141a1bb6af19528e5a
+msgid "picker_books_found"
+msgstr "在此文件夹中找到 %d 本书"
+
+# en-hash: 4bc56877a98a3b5f59735f579cf735a6
+msgid "picker_btn_new"
+msgstr "+ 新建"
+
+# en-hash: deffb03a57b0deaf912f04da4575848f
+msgid "picker_btn_select"
+msgstr "选择文件夹"
+
+# en-hash: 686e697538050e4664636337cc3b834f
+msgid "picker_create"
+msgstr "创建"
+
+# en-hash: 96cb7ae49077c528192c2bba40c42c69
+msgid "picker_create_subfolder"
+msgstr "在“%s”中创建子文件夹："
+
+# en-hash: e6818edb27f4a7711ea452befaa5efd4
+msgid "picker_created"
+msgstr "已创建“%s”"
+
+# en-hash: 96310b2cf48706c28110688622ac2cf2
+msgid "picker_failed"
+msgstr "创建文件夹失败。"
+
+# en-hash: b0f2b97dc5d2b76b26e040408bb1d8af
+msgid "picker_folder"
+msgstr "文件夹"
+
+# en-hash: 5148905edb46ca87df979cbb369c403d
+msgid "picker_new_folder"
+msgstr "新建文件夹"
+
+# en-hash: 259c5eb4351f5335ae7e69c060c748b0
+msgid "picker_no_subfolders"
+msgstr "此目录下无子文件夹。\n点击下方“选择文件夹”以使用此目录，或点击“+ 新建”创建子文件夹。"
+
+# en-hash: b8065ad2628f1f82f3167af0947b3e43
+msgid "picker_page_info"
+msgstr "第 %d 页，共 %d 页"
+
+# en-hash: d28fdd75f93893891fb2d7e3b40683de
+msgid "picker_parent_folder"
+msgstr ".. (上级文件夹)"
+
+# en-hash: e03107c5f320c880b61c546d0f6235af
+msgid "picker_select_folder_title"
+msgstr "选择下载文件夹"
+
+# en-hash: 3d4b3f597d8ae47dd94e0976517e1622
+msgid "picker_select_inbox_title"
+msgstr "选择收件箱文件夹"
+
+# en-hash: 6da9afa2cf39dd6c1d50a3d1d59f0a03
+msgid "plugin_description"
+msgstr "安全、无线地向 KOReader 发送电子书文件和 ACSM 令牌。"
+
+# en-hash: c2cc7082a89c1ad6631a2f66af5f00c0
+msgid "section_connection"
+msgstr "连接"
+
+# en-hash: 180851948115adc035c850ea087730cb
+msgid "section_device_pairing"
+msgstr "设备配对"
+
+# en-hash: 680efe77af9792c99115435b8da7e45e
+msgid "section_library_loans"
+msgstr "图书馆借阅"
+
+# en-hash: 25a62005e5c674d743a61a895c8b5528
+msgid "section_relay_storage"
+msgstr "中继与存储"
+
+# en-hash: a464c66c32987b168b831b97091fb0a7
+msgid "↻  New Code"
+msgstr "↻  新验证码"
+
+# en-hash: 6ef462a48ea9f46f6221271a3cf665c0
+msgid "✓ Browser paired! Code used."
+msgstr "✓ 浏览器配对成功！验证码已使用。"
+
+# en-hash: 0dc6e60087b7138a47a409ebed611aa9
+msgid "🐝 Checking Beeline inbox…"
+msgstr "🐝 正在检查 Beeline 收件箱…"
+

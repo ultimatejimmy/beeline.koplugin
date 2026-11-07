@@ -1,0 +1,31 @@
+Beeline
+Copyright (C) 2026 Jimmy Pautz
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+----------------------------------------------------------------------
+Third-Party Notices and Acknowledgements:
+
+1. Libbee
+   Copyright (c) 2026 Jimmy Pautz
+   Licensed under the MIT License.
+
+2. acsm.koplugin (Adobe ADEPT fulfillment logic)
+   Copyright (c) 2026 Kai Kozlov
+   Licensed under the MIT License.
+
+3. DeDRM_tools ineptpdf (PDF ADEPT decryption logic)
+   Copyright (C) 2009-2020 by i♥cabbages, Apprentice Harper et al.
+   Copyright (C) 2021-2022 by noDRM et al.
+   Licensed under the GNU General Public License, version 3.

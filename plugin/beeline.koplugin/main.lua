@@ -5,6 +5,17 @@ local logger = require("logger")
 
 local plugin_path = ((...) or ""):match("(.-)[^%.]+$") or ""
 
+local ok_loc, Localization = pcall(require, plugin_path .. "localization_beeline")
+if not ok_loc or not Localization then
+    ok_loc, Localization = pcall(require, "localization_beeline")
+end
+local _ = function(key, ...)
+    if ok_loc and Localization then
+        return Localization:t(key, ...)
+    end
+    return key
+end
+
 local ok_wc, WidgetContainer = pcall(require, "ui/widget/container/widgetcontainer")
 local ok_ui, UIManager       = pcall(require, "ui/uimanager")
 
@@ -138,6 +149,10 @@ function BeelinePlugin:init()
         end
     end
 
+    if ok_loc and Localization then
+        Localization:ensureInit(self.path)
+    end
+
     self:onDispatcherRegisterActions()
 
     if self.ui and self.ui.menu then
@@ -146,10 +161,62 @@ function BeelinePlugin:init()
 
     self:startBackgroundSync(10)
 
+    -- Auto-clean expired loan books at initialization
+    pcall(function()
+        local ok_clean, Autoclean = pcall(require, plugin_path .. "beeline_autoclean")
+        if ok_clean and Autoclean then
+            Autoclean.cleanExpiredBooks()
+        end
+    end)
+
+    -- Initialize Ephemeral ADEPT Decryption Hooks & clean stale sessions
+    local ok_eph, Ephemeral = pcall(require, plugin_path .. "beeline_ephemeral")
+    if ok_eph and Ephemeral then
+        Ephemeral.installHooks()
+        if not (self.ui and self.ui.document) then
+            Ephemeral.cleanupAllOrphans()
+        end
+    else
+        logger.err("beeline: could not initialize beeline_ephemeral: " .. tostring(Ephemeral))
+    end
+
     logger.info("beeline: plugin initialized")
 end
 
+local function injectBeelineIntoToolsMenu()
+    local menu_orders = {
+        "ui/elements/reader_menu_order",
+        "ui/elements/filemanager_menu_order",
+        "ui/elements/menu_order",
+    }
+    local function isItemInOrder(tbl, target_id)
+        if type(tbl) ~= "table" then return false end
+        for _, val in pairs(tbl) do
+            if val == target_id then
+                return true
+            elseif type(val) == "table" then
+                if isItemInOrder(val, target_id) then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    for _, order_path in ipairs(menu_orders) do
+        local ok, order = pcall(require, order_path)
+        if ok and type(order) == "table" and type(order.tools) == "table" then
+            if not isItemInOrder(order, "beeline") and not isItemInOrder(order, "Beeline") then
+                -- Position 4 in the tools menu
+                local pos = math.min(4, #order.tools + 1)
+                table.insert(order.tools, pos, "beeline")
+            end
+        end
+    end
+end
+
 function BeelinePlugin:addToMainMenu(menu_items)
+    injectBeelineIntoToolsMenu()
     local icon_path = self.path .. "/assets/bee.png"
     menu_items.beeline = {
         text         = "Beeline",
@@ -170,19 +237,19 @@ function BeelinePlugin:onDispatcherRegisterActions()
         Dispatcher:registerAction("beeline_check_inbox", {
             category = "none",
             event    = "BeelineCheckInbox",
-            title    = "Beeline: Check for Files",
+            title    = _("Beeline: Check for Files"),
             general  = true,
         })
         Dispatcher:registerAction("beeline_menu", {
             category = "none",
             event    = "BeelineMenu",
-            title    = "Beeline: Open Menu",
+            title    = _("Beeline: Open Menu"),
             general  = true,
         })
         Dispatcher:registerAction("beeline_qr_code", {
             category = "none",
             event    = "BeelineQRCode",
-            title    = "Beeline: Scan to Pair (QR Code)",
+            title    = _("Beeline: Scan to Pair (QR Code)"),
             general  = true,
         })
     end)
@@ -222,6 +289,12 @@ end
 
 function BeelinePlugin:onCloseWidget()
     self:stopBackgroundSync()
+    pcall(function()
+        local ok_eph, Ephemeral = pcall(require, plugin_path .. "beeline_ephemeral")
+        if ok_eph and Ephemeral then
+            Ephemeral.cleanupAllOrphans()
+        end
+    end)
 end
 
 function BeelinePlugin:onNetworkConnected()
@@ -238,8 +311,8 @@ function BeelinePlugin:onNetworkConnected()
         if ok_crypto and ok_client then
             local code_hash = Crypto.getCodeHash(pairing_code)
             if code_hash then
-                local ok_reg, parsed = pcall(Client.registerPairingCode, worker_url, code_hash, device_id)
-                if ok_reg and parsed and parsed.claimed then
+                local ok_reg, success, parsed = pcall(Client.registerPairingCode, worker_url, code_hash, device_id)
+                if ok_reg and success and type(parsed) == "table" and parsed.claimed then
                     pairing_code = State.regeneratePairingCode()
                     local new_hash = Crypto.getCodeHash(pairing_code)
                     if new_hash then

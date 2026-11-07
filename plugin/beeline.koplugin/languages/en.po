@@ -1,0 +1,505 @@
+msgid ""
+msgstr ""
+"Language-Team: English\n"
+"Language: en\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "%d books added to your library"
+msgstr "%d books added to your library"
+
+msgid "%d books found in this folder"
+msgstr "%d books found in this folder"
+
+msgid "%d browser(s) paired"
+msgstr "%d browser(s) paired"
+
+msgid "%d days ›"
+msgstr "%d days ›"
+
+msgid "%s\n%s"
+msgstr "%s\n%s"
+
+msgid "%s\nPlease download fresh token from Libby."
+msgstr "%s\nPlease download fresh token from Libby."
+
+msgid "+ New"
+msgstr "+ New"
+
+msgid ".. (Parent Folder)"
+msgstr ".. (Parent Folder)"
+
+msgid "1. On phone/PC browser open:"
+msgstr "1. On phone/PC browser open:"
+
+msgid "2. Scan QR code or enter code:"
+msgstr "2. Scan QR code or enter code:"
+
+msgid "ACSM Account Mode"
+msgstr "ACSM Account Mode"
+
+msgid "ACSM Already Claimed"
+msgstr "ACSM Already Claimed"
+
+msgid "ACSM Already Fulfilled"
+msgstr "ACSM Already Fulfilled"
+
+msgid "ACSM Book Fulfillment"
+msgstr "ACSM Book Fulfillment"
+
+msgid "ACSM Fulfillment Account"
+msgstr "ACSM Fulfillment Account"
+
+msgid "ACSM Fulfillment Failed"
+msgstr "ACSM Fulfillment Failed"
+
+msgid "Accept"
+msgstr "Accept"
+
+msgid "All browsers disconnected. New code: %s"
+msgstr "All browsers disconnected. New code: %s"
+
+msgid "Anonymous (Default)"
+msgstr "Anonymous (Default)"
+
+msgid "Authorization Failed"
+msgstr "Authorization Failed"
+
+msgid "Authorizing ByteBooks account..."
+msgstr "Authorizing ByteBooks account..."
+
+msgid "Auto-Check on Wi-Fi"
+msgstr "Auto-Check on Wi-Fi"
+
+msgid "Back"
+msgstr "Back"
+
+msgid "Background Sync (30s)"
+msgstr "Background Sync (30s)"
+
+msgid "Background sync enabled.\nWarning: Keeps Wi-Fi active and will increase battery drain."
+msgstr "Background sync enabled.\nWarning: Keeps Wi-Fi active and will increase battery drain."
+
+msgid "Battery Drain Warning"
+msgstr "Battery Drain Warning"
+
+msgid "Beeline"
+msgstr "Beeline"
+
+msgid "Beeline Settings"
+msgstr "Beeline Settings"
+
+msgid "Beeline can fulfill your library loans and purchased books on-device into EPUB or PDF.\n\n• For your personal use and your own loans/purchases only.\n• Fulfills directly on-device using Adobe / ByteBooks ADEPT protocols.\n• Expired loans are automatically cleaned up 1 day after expiry.\n\nDo you want to enable on-device ACSM fulfillment?"
+msgstr "Beeline can fulfill your library loans and purchased books on-device into EPUB or PDF.\n\n• For your personal use and your own loans/purchases only.\n• Fulfills directly on-device using Adobe / ByteBooks ADEPT protocols.\n• Expired loans are automatically cleaned up 1 day after expiry.\n\nDo you want to enable on-device ACSM fulfillment?"
+
+msgid "Beeline: Check for Files"
+msgstr "Beeline: Check for Files"
+
+msgid "Beeline: Open Menu"
+msgstr "Beeline: Open Menu"
+
+msgid "Beeline: Scan to Pair (QR Code)"
+msgstr "Beeline: Scan to Pair (QR Code)"
+
+msgid "Book Fulfilled"
+msgstr "Book Fulfilled"
+
+msgid "Book Fulfilled!"
+msgstr "Book Fulfilled!"
+
+msgid "ByteBooks Email"
+msgstr "ByteBooks Email"
+
+msgid "ByteBooks Password"
+msgstr "ByteBooks Password"
+
+msgid "ByteBooks activation successful!"
+msgstr "ByteBooks activation successful!"
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Check for Incoming Files"
+msgstr "Check for Incoming Files"
+
+msgid "Close"
+msgstr "Close"
+
+msgid "Cloudflare Worker URL"
+msgstr "Cloudflare Worker URL"
+
+msgid "Code expired — tap New Code"
+msgstr "Code expired — tap New Code"
+
+msgid "Code expired — tap below to regenerate"
+msgstr "Code expired — tap below to regenerate"
+
+msgid "Code valid for %d min • Once paired, stays connected"
+msgstr "Code valid for %d min • Once paired, stays connected"
+
+msgid "Code: %s"
+msgstr "Code: %s"
+
+msgid "Configuration Required"
+msgstr "Configuration Required"
+
+msgid "Connection"
+msgstr "Connection"
+
+msgid "Connection failed: %s"
+msgstr "Connection failed: %s"
+
+msgid "Could not activate ByteBooks account:\n%s"
+msgstr "Could not activate ByteBooks account:\n%s"
+
+msgid "Could not decrypt %d file(s).\nPlease make sure your pairing code matches the one entered on your phone or PC."
+msgstr "Could not decrypt %d file(s).\nPlease make sure your pairing code matches the one entered on your phone or PC."
+
+msgid "Could not fulfill loan book:\n%s"
+msgstr "Could not fulfill loan book:\n%s"
+
+msgid "Could not open ADEPT book:\n%s"
+msgstr "Could not open ADEPT book:\n%s"
+
+msgid "Create"
+msgstr "Create"
+
+msgid "Create subfolder in '%s':"
+msgstr "Create subfolder in '%s':"
+
+msgid "Created '%s'"
+msgstr "Created '%s'"
+
+msgid "Deauthorize"
+msgstr "Deauthorize"
+
+msgid "Deauthorized ByteBooks account"
+msgstr "Deauthorized ByteBooks account"
+
+msgid "Decline"
+msgstr "Decline"
+
+msgid "Decryption Failed"
+msgstr "Decryption Failed"
+
+msgid "Default Loan Duration (Days)"
+msgstr "Default Loan Duration (Days)"
+
+msgid "Default Loan Expiry"
+msgstr "Default Loan Expiry"
+
+msgid "Destination Inbox"
+msgstr "Destination Inbox"
+
+msgid "Device Pairing"
+msgstr "Device Pairing"
+
+msgid "Disconnect All"
+msgstr "Disconnect All"
+
+msgid "Disconnect All Browsers"
+msgstr "Disconnect All Browsers"
+
+msgid "Disconnect All Browsers (%d)"
+msgstr "Disconnect All Browsers (%d)"
+
+msgid "Disconnect All Browsers?"
+msgstr "Disconnect All Browsers?"
+
+msgid "Downloaded to Library"
+msgstr "Downloaded to Library"
+
+msgid "Enter full HTTPS endpoint of your Beeline Worker:"
+msgstr "Enter full HTTPS endpoint of your Beeline Worker:"
+
+msgid "Failed to create folder."
+msgstr "Failed to create folder."
+
+msgid "File Received!"
+msgstr "File Received!"
+
+msgid "Folder"
+msgstr "Folder"
+
+msgid "Fulfilling %s..."
+msgstr "Fulfilling %s..."
+
+msgid "Fulfillment Failed"
+msgstr "Fulfillment Failed"
+
+msgid "Generate New Code"
+msgstr "Generate New Code"
+
+msgid "Inbox check failed: %s"
+msgstr "Inbox check failed: %s"
+
+msgid "Inbox folder set to %s"
+msgstr "Inbox folder set to %s"
+
+msgid "Incoming Transfer"
+msgstr "Incoming Transfer"
+
+msgid "Keep in Inbox"
+msgstr "Keep in Inbox"
+
+msgid "Keeps Wi-Fi active every 30s; will noticeably increase battery drain."
+msgstr "Keeps Wi-Fi active every 30s; will noticeably increase battery drain."
+
+msgid "Library Loans"
+msgstr "Library Loans"
+
+msgid "Loan Token Expired"
+msgstr "Loan Token Expired"
+
+msgid "Loan token received. Open Beeline in Tools menu to fulfill."
+msgstr "Loan token received. Open Beeline in Tools menu to fulfill."
+
+msgid "New Folder"
+msgstr "New Folder"
+
+msgid "New pairing code: %s"
+msgstr "New pairing code: %s"
+
+msgid "Next"
+msgstr "Next"
+
+msgid "No browsers paired"
+msgstr "No browsers paired"
+
+msgid "No incoming files found."
+msgstr "No incoming files found."
+
+msgid "No subfolders in this directory.\nTap 'Select Folder' below to use it, or '+ New' to create a subfolder."
+msgstr "No subfolders in this directory.\nTap 'Select Folder' below to use it, or '+ New' to create a subfolder."
+
+msgid "OK"
+msgstr "OK"
+
+msgid "Open Folder"
+msgstr "Open Folder"
+
+msgid "Open Now"
+msgstr "Open Now"
+
+msgid "Page %d of %d"
+msgstr "Page %d of %d"
+
+msgid "Please configure your Pairing Code and Worker URL in Beeline Settings before checking for files."
+msgstr "Please configure your Pairing Code and Worker URL in Beeline Settings before checking for files."
+
+msgid "Please enter a valid number of days (1-365)"
+msgstr "Please enter a valid number of days (1-365)"
+
+msgid "QR code unavailable.\nPlease open in browser:\n"
+msgstr "QR code unavailable.\nPlease open in browser:\n"
+
+msgid "Received %d Books!"
+msgstr "Received %d Books!"
+
+msgid "Received file %d of %d:\n%s"
+msgstr "Received file %d of %d:\n%s"
+
+msgid "Relay & Storage"
+msgstr "Relay & Storage"
+
+msgid "Save"
+msgstr "Save"
+
+msgid "Scan to Pair"
+msgstr "Scan to Pair"
+
+msgid "Scan with your phone camera to pair instantly.\n%s"
+msgstr "Scan with your phone camera to pair instantly.\n%s"
+
+msgid "Select Download Folder"
+msgstr "Select Download Folder"
+
+msgid "Select Folder"
+msgstr "Select Folder"
+
+msgid "Select Inbox Folder"
+msgstr "Select Inbox Folder"
+
+msgid "Send ebook files and ACSM tokens wirelessly and securely to KOReader."
+msgstr "Send ebook files and ACSM tokens wirelessly and securely to KOReader."
+
+msgid "Settings"
+msgstr "Settings"
+
+msgid "Sign In"
+msgstr "Sign In"
+
+msgid "Sign in to ByteBooks"
+msgstr "Sign in to ByteBooks"
+
+msgid "Test & Save"
+msgstr "Test & Save"
+
+msgid "The loan token for '%s' has expired.\n\nPlease open Libby or your library website and click 'Download EPUB' again to generate a fresh token."
+msgstr "The loan token for '%s' has expired.\n\nPlease open Libby or your library website and click 'Download EPUB' again to generate a fresh token."
+
+msgid "This loan was already fulfilled by another user or device.\n(E_LIC_ALREADY_FULFILLED_BY_ANOTHER_USER)\n\nThe single-use token has been consumed and will not be re-checked."
+msgstr "This loan was already fulfilled by another user or device.\n(E_LIC_ALREADY_FULFILLED_BY_ANOTHER_USER)\n\nThe single-use token has been consumed and will not be re-checked."
+
+msgid "This will revoke all currently connected phones and computers. They will need a new pairing code to send books."
+msgstr "This will revoke all currently connected phones and computers. They will need a new pairing code to send books."
+
+msgid "Token was already fulfilled on another device."
+msgstr "Token was already fulfilled on another device."
+
+msgid "Valid for %d min • Browsers stay paired permanently"
+msgstr "Valid for %d min • Browsers stay paired permanently"
+
+msgid "Worker URL"
+msgstr "Worker URL"
+
+msgid "Worker connection verified!"
+msgstr "Worker connection verified!"
+
+msgid "Would you like to open it now?"
+msgstr "Would you like to open it now?"
+
+msgid "Would you like to open the destination folder?"
+msgstr "Would you like to open the destination folder?"
+
+msgid "action_check_inbox"
+msgstr "Beeline: Check for Files"
+
+msgid "action_open_menu"
+msgstr "Beeline: Open Menu"
+
+msgid "action_qr_code"
+msgstr "Beeline: Scan to Pair (QR Code)"
+
+msgid "beeline_title"
+msgstr "Beeline"
+
+msgid "btn_accept"
+msgstr "Accept"
+
+msgid "btn_back"
+msgstr "Back"
+
+msgid "btn_cancel"
+msgstr "Cancel"
+
+msgid "btn_check_files"
+msgstr "Check for Incoming Files"
+
+msgid "btn_close"
+msgstr "Close"
+
+msgid "btn_deauthorize"
+msgstr "Deauthorize"
+
+msgid "btn_decline"
+msgstr "Decline"
+
+msgid "btn_disconnect_all"
+msgstr "Disconnect All"
+
+msgid "btn_disconnect_all_browsers"
+msgstr "Disconnect All Browsers"
+
+msgid "btn_generate_new_code"
+msgstr "Generate New Code"
+
+msgid "btn_keep_in_inbox"
+msgstr "Keep in Inbox"
+
+msgid "btn_new_code"
+msgstr "↻  New Code"
+
+msgid "btn_next"
+msgstr "Next"
+
+msgid "btn_ok"
+msgstr "OK"
+
+msgid "btn_open_folder"
+msgstr "Open Folder"
+
+msgid "btn_open_now"
+msgstr "Open Now"
+
+msgid "btn_save"
+msgstr "Save"
+
+msgid "btn_settings"
+msgstr "Settings"
+
+msgid "btn_sign_in"
+msgstr "Sign In"
+
+msgid "btn_test_save"
+msgstr "Test & Save"
+
+msgid "menu_beeline"
+msgstr "Beeline"
+
+msgid "picker_books_found"
+msgstr "%d books found in this folder"
+
+msgid "picker_btn_new"
+msgstr "+ New"
+
+msgid "picker_btn_select"
+msgstr "Select Folder"
+
+msgid "picker_create"
+msgstr "Create"
+
+msgid "picker_create_subfolder"
+msgstr "Create subfolder in '%s':"
+
+msgid "picker_created"
+msgstr "Created '%s'"
+
+msgid "picker_failed"
+msgstr "Failed to create folder."
+
+msgid "picker_folder"
+msgstr "Folder"
+
+msgid "picker_new_folder"
+msgstr "New Folder"
+
+msgid "picker_no_subfolders"
+msgstr "No subfolders in this directory.\\nTap 'Select Folder' below to use it, or '+ New' to create a subfolder."
+
+msgid "picker_page_info"
+msgstr "Page %d of %d"
+
+msgid "picker_parent_folder"
+msgstr ".. (Parent Folder)"
+
+msgid "picker_select_folder_title"
+msgstr "Select Download Folder"
+
+msgid "picker_select_inbox_title"
+msgstr "Select Inbox Folder"
+
+msgid "plugin_description"
+msgstr "Send ebook files and ACSM tokens wirelessly and securely to KOReader."
+
+msgid "section_connection"
+msgstr "Connection"
+
+msgid "section_device_pairing"
+msgstr "Device Pairing"
+
+msgid "section_library_loans"
+msgstr "Library Loans"
+
+msgid "section_relay_storage"
+msgstr "Relay & Storage"
+
+msgid "↻  New Code"
+msgstr "↻  New Code"
+
+msgid "✓ Browser paired! Code used."
+msgstr "✓ Browser paired! Code used."
+
+msgid "🐝 Checking Beeline inbox…"
+msgstr "🐝 Checking Beeline inbox…"
+

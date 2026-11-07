@@ -21,7 +21,16 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local plugin_path = ((...) or ""):match("(.-)[^%.]+$") or ""
-local _ = function(key, ...) return key end
+local ok_loc, Localization = pcall(require, plugin_path .. "localization_beeline")
+if not ok_loc or not Localization then
+    ok_loc, Localization = pcall(require, "localization_beeline")
+end
+local _ = function(key, ...)
+    if ok_loc and Localization then
+        return Localization:t(key, ...)
+    end
+    return key
+end
 local theme = require(plugin_path .. "beeline_theme")
 local log = require("logger")
 

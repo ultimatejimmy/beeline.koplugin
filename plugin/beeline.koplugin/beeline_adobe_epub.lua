@@ -41,8 +41,55 @@ local function removeTree(path)
     lfs.rmdir(path)
 end
 
+local function urlDecode(str)
+    if type(str) ~= "string" then return str end
+    return (str:gsub("%%(%x%x)", function(hex)
+        return string.char(tonumber(hex, 16))
+    end))
+end
+
+local function normalizeZipPath(path)
+    if type(path) ~= "string" then return nil end
+    local clean = path:gsub("\\", "/")
+    clean = clean:gsub("^%./+", ""):gsub("^/+", ""):gsub("//+", "/")
+    if clean == "" or clean == ".." or clean:match("^%.%./") or clean:match("/%.%./") or clean:match("/%.%.$") then
+        return nil
+    end
+    return clean
+end
+
+local function hasUncompressedMethod(encDataNode, encDataNsMap)
+    local propsNode, propsNsMap = dom.firstElement(encDataNode, encDataNsMap, "EncryptionProperties")
+    if not propsNode then
+        return false
+    end
+    for _, propChild in ipairs(propsNode._children or {}) do
+        if propChild._type == "ELEMENT" then
+            local propNsMap = dom.nsMapFor(propChild, propsNsMap)
+            local _, propName = dom.resolveNodeName(propChild, propNsMap)
+            if propName == "EncryptionProperty" then
+                local compNode = dom.firstElement(propChild, propNsMap, "Compression")
+                if compNode and compNode._attr and tostring(compNode._attr.Method or "") == "0" then
+                    return true
+                end
+                if propChild._attr and tostring(propChild._attr.Method or "") == "0" then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function parseEncryptionXml(encryptionXml)
     local root = dom.parse(encryptionXml)
+    if not root then
+        return {
+            encrypted = {},
+            encryptedForceNoDecomp = {},
+            rewrittenXml = nil,
+        }
+    end
     local rootNsMap = dom.nsMapFor(root, { [""] = "urn:oasis:names:tc:opendocument:xmlns:container" })
 
     local encrypted = {}
@@ -55,7 +102,7 @@ local function parseEncryptionXml(encryptionXml)
             keptChildren[#keptChildren + 1] = child
         else
             local childNsMap = dom.nsMapFor(child, rootNsMap)
-            local childNs, childName = dom.resolveNodeName(child, rootNsMap)
+            local childNs, childName = dom.resolveNodeName(child, childNsMap)
             if childNs == XMLENC and childName == "EncryptedData" then
                 local methodNode = dom.firstElement(child, childNsMap, "EncryptionMethod", XMLENC)
                 local cipherDataNode, cipherDataNsMap = dom.firstElement(child, childNsMap, "CipherData", XMLENC)
@@ -65,7 +112,11 @@ local function parseEncryptionXml(encryptionXml)
                 local uri = cipherRefNode and cipherRefNode._attr and cipherRefNode._attr.URI or nil
 
                 if uri and algorithm == AES128_CBC then
-                    encrypted[uri] = true
+                    if hasUncompressedMethod(child, childNsMap) then
+                        encryptedForceNoDecomp[uri] = true
+                    else
+                        encrypted[uri] = true
+                    end
                 elseif uri and algorithm == AES128_CBC_UNCOMPRESSED then
                     encryptedForceNoDecomp[uri] = true
                 else
@@ -284,7 +335,10 @@ local function decryptAdeptEntryFile(fullPath, bookKey, noDecomp)
     end
 
     if inflater then
-        inflater:finalize()
+        local infOk = inflater:finalize()
+        if not readErr and not infOk then
+            readErr = "Truncated deflate stream"
+        end
     end
     local closeOk, closeErr = outWriter:close()
     if not readErr and not closeOk then
@@ -307,6 +361,35 @@ local function decryptAdeptEntryFile(fullPath, bookKey, noDecomp)
     return true
 end
 
+function epub.cleanupWorkDirs(maxAgeSeconds)
+    local ok_ds, cacheBase = pcall(function()
+        return DataStorage:getDataDir() .. "/cache/beeline.koplugin"
+    end)
+    if not ok_ds or not cacheBase or lfs.attributes(cacheBase, "mode") ~= "directory" then
+        return 0
+    end
+    local now = os.time()
+    local maxAge = maxAgeSeconds or 3600
+    local cleaned = 0
+    local ok_dir, iter, dir_obj = pcall(lfs.dir, cacheBase)
+    if ok_dir and iter then
+        for entry in iter, dir_obj do
+            if entry:match("^epub%-work%-") or entry == "epub_work" then
+                local full = cacheBase .. "/" .. entry
+                local attr = lfs.attributes(full)
+                if attr and attr.mode == "directory" then
+                    local age = now - (attr.modification or 0)
+                    if maxAge <= 0 or age >= maxAge then
+                        removeTree(full)
+                        cleaned = cleaned + 1
+                    end
+                end
+            end
+        end
+    end
+    return cleaned
+end
+
 local function makeTempDir()
     local cacheDir = DataStorage:getDataDir() .. "/cache/beeline.koplugin"
     if lfs.attributes(cacheDir, "mode") ~= "directory" then
@@ -316,12 +399,8 @@ local function makeTempDir()
         end
     end
 
-    -- Remove the fixed directory used by older versions. New work directories
-    -- are unique so overlapping external-open jobs cannot delete each other's data.
-    local legacyDir = cacheDir .. "/epub_work"
-    if lfs.attributes(legacyDir, "mode") == "directory" then
-        removeTree(legacyDir)
-    end
+    -- Sweep abandoned work directories older than 1 hour (and legacy epub_work)
+    pcall(epub.cleanupWorkDirs, 3600)
 
     local timestamp = tostring(os.time())
     local random = tostring(math.random(100000, 999999))
@@ -379,23 +458,58 @@ local function listFiles(workDir)
     return files
 end
 
+local function validateRepackedEpub(epubPath)
+    local reader = Archiver.Reader:new()
+    if not reader:open(epubPath) then
+        return nil, reader.err or "Could not reopen repacked EPUB"
+    end
+    local containerPath = nil
+    local entryCount = 0
+    for entry in reader:iterate() do
+        entryCount = entryCount + 1
+        local norm = normalizeZipPath(entry.path)
+        if norm and norm:lower() == "meta-inf/container.xml" and entry.mode == "file" then
+            containerPath = entry.path
+        end
+    end
+    local readErr = reader.err
+    local hasContainer = false
+    if not readErr and containerPath then
+        local xmlData = reader:extractToMemory(containerPath)
+        if xmlData and #xmlData > 0 then
+            hasContainer = true
+        end
+        readErr = reader.err
+    end
+    reader:close()
+    if readErr then
+        return nil, "Repacked EPUB validation failed: " .. tostring(readErr)
+    end
+    if entryCount == 0 or not hasContainer then
+        return nil, "Repacked EPUB is missing META-INF/container.xml"
+    end
+    return true
+end
+
 local function repackEpub(workDir, outputPath)
-    os.remove(outputPath)
+    local tmpOut = outputPath .. ".tmp"
+    os.remove(tmpOut)
+
     local writer = Archiver.Writer:new({})
-    if not writer:open(outputPath, "epub") then
+    if not writer:open(tmpOut, "epub") then
         return nil, writer.err or "Could not open EPUB writer"
     end
 
     local mtime = os.time()
     local mimetype = koutil.readFromFile(workDir .. "/mimetype", "rb")
-    if not mimetype then
-        writer:close()
-        return nil, "Missing mimetype"
+    if not mimetype or mimetype == "" then
+        mimetype = "application/epub+zip"
     end
 
     writer:setZipCompression("store")
     if not writer:addFileFromMemory("mimetype", mimetype, mtime) then
         writer:close()
+        os.remove(tmpOut)
         return nil, writer.err or "Could not write mimetype"
     end
 
@@ -403,6 +517,7 @@ local function repackEpub(workDir, outputPath)
     local files, listErr = listFiles(workDir)
     if not files then
         writer:close()
+        os.remove(tmpOut)
         return nil, listErr
     end
 
@@ -411,17 +526,33 @@ local function repackEpub(workDir, outputPath)
             local fullPath = workDir .. "/" .. relPath
             if lfs.attributes(fullPath, "mode") ~= "file" then
                 writer:close()
+                os.remove(tmpOut)
                 return nil, "Missing repack input: " .. relPath
             end
             writer:addPath(relPath, fullPath, false, mtime)
             if writer.err then
+                local err = writer.err
                 writer:close()
-                return nil, writer.err
+                os.remove(tmpOut)
+                return nil, err
             end
         end
     end
 
     writer:close()
+
+    local validOk, validErr = validateRepackedEpub(tmpOut)
+    if not validOk then
+        os.remove(tmpOut)
+        return nil, validErr
+    end
+
+    os.remove(outputPath)
+    local renOk, renErr = os.rename(tmpOut, outputPath)
+    if not renOk then
+        os.remove(tmpOut)
+        return nil, "Failed to finalize EPUB: " .. tostring(renErr)
+    end
     return true
 end
 
@@ -433,7 +564,12 @@ local function extractEpub(inputPath, workDir)
 
     for entry in reader:iterate() do
         if entry.mode == "file" then
-            local fullPath = workDir .. "/" .. entry.path
+            local normPath = normalizeZipPath(entry.path)
+            if not normPath then
+                reader:close()
+                return nil, "Unsafe EPUB entry path: " .. tostring(entry.path)
+            end
+            local fullPath = workDir .. "/" .. normPath
             local parent = fullPath:match("^(.*)/[^/]+$")
             if parent and parent ~= "" then
                 local ok, err = ensureDir(parent)
@@ -450,7 +586,11 @@ local function extractEpub(inputPath, workDir)
         end
     end
 
+    local readErr = reader.err
     reader:close()
+    if readErr then
+        return nil, "EPUB read error: " .. tostring(readErr)
+    end
     return true
 end
 
@@ -501,13 +641,40 @@ function epub.decryptAdobeEpub(inputPath, outputPath, bookKey)
     local parsed = parseEncryptionXml(encryptionXml)
     logger.info("[ACSM] decryptAdobeEpub: parsed encryption, decrypting entries...")
 
+    local extractedFiles = listFiles(workDir) or {}
+    local lowerFileMap = {}
+    local exactFileMap = {}
+    for _, fpath in ipairs(extractedFiles) do
+        exactFileMap[fpath] = fpath
+        lowerFileMap[fpath:lower()] = fpath
+    end
+
+    local function resolveEntryRelPath(uri)
+        local norm = normalizeZipPath(uri)
+        if norm and exactFileMap[norm] then
+            return exactFileMap[norm]
+        end
+        local decoded = normalizeZipPath(urlDecode(uri))
+        if decoded and exactFileMap[decoded] then
+            return exactFileMap[decoded]
+        end
+        if norm and lowerFileMap[norm:lower()] then
+            return lowerFileMap[norm:lower()]
+        end
+        if decoded and lowerFileMap[decoded:lower()] then
+            return lowerFileMap[decoded:lower()]
+        end
+        return decoded or norm or uri
+    end
+
     local decryptCount = 0
-    for relPath in pairs(parsed.encrypted) do
+    for uri in pairs(parsed.encrypted) do
+        local relPath = resolveEntryRelPath(uri)
         local fullPath = workDir .. "/" .. relPath
         local _decOk, decErr = decryptAdeptEntryFile(fullPath, bookKey, false)
         if not _decOk then
             removeTree(workDir)
-            return nil, "Failed to decrypt " .. relPath .. ": " .. decErr
+            return nil, "Failed to decrypt " .. tostring(relPath) .. ": " .. tostring(decErr)
         end
         collectgarbage("step", 200)
         decryptCount = decryptCount + 1
@@ -515,12 +682,13 @@ function epub.decryptAdobeEpub(inputPath, outputPath, bookKey)
     logger.info("[ACSM] decryptAdobeEpub: decrypted", decryptCount, "entries with decompression")
 
     local forceNoDecompCount = 0
-    for relPath in pairs(parsed.encryptedForceNoDecomp) do
+    for uri in pairs(parsed.encryptedForceNoDecomp) do
+        local relPath = resolveEntryRelPath(uri)
         local fullPath = workDir .. "/" .. relPath
         local _decOk, decErr = decryptAdeptEntryFile(fullPath, bookKey, true)
         if not _decOk then
             removeTree(workDir)
-            return nil, "Failed to decrypt " .. relPath .. ": " .. decErr
+            return nil, "Failed to decrypt " .. tostring(relPath) .. ": " .. tostring(decErr)
         end
         collectgarbage("step", 200)
         forceNoDecompCount = forceNoDecompCount + 1
@@ -573,7 +741,17 @@ function epub.extractEncryptedKeyFromEpub(inputPath)
     if not reader:open(inputPath) then
         return nil, reader.err or "Could not open EPUB archive"
     end
-    local rightsXml = reader:extractToMemory("META-INF/rights.xml")
+    local rightsEntry = nil
+    for entry in reader:iterate() do
+        if entry.mode == "file" then
+            local norm = normalizeZipPath(entry.path)
+            if norm and norm:lower() == "meta-inf/rights.xml" then
+                rightsEntry = entry.path
+                break
+            end
+        end
+    end
+    local rightsXml = rightsEntry and reader:extractToMemory(rightsEntry) or nil
     reader:close()
     if not rightsXml or rightsXml == "" then
         return nil, "No rights.xml found"
@@ -596,8 +774,9 @@ function epub.extractCoverImage(inputPath, bookKey)
     local encXmlEntry = nil
     for entry in reader:iterate() do
         if entry.mode == "file" then
-            local lower = entry.path:lower()
-            if entry.path == "META-INF/encryption.xml" then
+            local norm = normalizeZipPath(entry.path)
+            local lower = (norm or entry.path):lower()
+            if lower == "meta-inf/encryption.xml" then
                 encXmlEntry = entry.path
             end
             if not candidateEntry and (lower:match("%.jpe?g$") or lower:match("%.png$")) and lower:match("cover") then
@@ -618,8 +797,16 @@ function epub.extractCoverImage(inputPath, bookKey)
         if encXml and encXml ~= "" then
             local parsed = parseEncryptionXml(encXml)
             if parsed then
-                encryptedEntries = parsed.encrypted or {}
-                forceNoDecomp = parsed.encryptedForceNoDecomp or {}
+                for k, v in pairs(parsed.encrypted or {}) do
+                    encryptedEntries[k] = v
+                    local n = normalizeZipPath(urlDecode(k))
+                    if n then encryptedEntries[n:lower()] = v end
+                end
+                for k, v in pairs(parsed.encryptedForceNoDecomp or {}) do
+                    forceNoDecomp[k] = v
+                    local n = normalizeZipPath(urlDecode(k))
+                    if n then forceNoDecomp[n:lower()] = v end
+                end
             end
         end
     end
@@ -631,15 +818,17 @@ function epub.extractCoverImage(inputPath, bookKey)
     end
 
     local ext = candidateEntry:lower():match("%.png$") and "png" or "jpg"
-    local isEncrypted = encryptedEntries[candidateEntry] or forceNoDecomp[candidateEntry]
-    local needsDecomp = encryptedEntries[candidateEntry] and not forceNoDecomp[candidateEntry]
+    local normCand = normalizeZipPath(candidateEntry)
+    local candLower = normCand and normCand:lower() or candidateEntry:lower()
+    local isEncrypted = encryptedEntries[candidateEntry] or encryptedEntries[candLower] or forceNoDecomp[candidateEntry] or forceNoDecomp[candLower]
+    local needsDecomp = (encryptedEntries[candidateEntry] or encryptedEntries[candLower]) and not (forceNoDecomp[candidateEntry] or forceNoDecomp[candLower])
 
     if isEncrypted then
         if not bookKey or #bookKey == 0 then
             return nil, "Encrypted cover but no book key provided"
         end
 
-        local decData, decErr = nativecrypto.aes_cbc_decrypt(bookKey, string.rep("\0", 16), data, false)
+        local decData, decErr = nativecrypto.aes_cbc_decrypt(bookKey, string.rep("\0", 16), data, true)
         if not decData or #decData <= 16 then
             return nil, "Failed to decrypt cover: " .. tostring(decErr)
         end
@@ -650,7 +839,16 @@ function epub.extractCoverImage(inputPath, bookKey)
         -- 2. Strip PKCS#7 padding
         local pad = body:byte(-1)
         if pad and pad >= 1 and pad <= 16 and pad <= #body then
-            body = body:sub(1, -1 - pad)
+            local validPad = true
+            for i = #body - pad + 1, #body do
+                if body:byte(i) ~= pad then
+                    validPad = false
+                    break
+                end
+            end
+            if validPad then
+                body = body:sub(1, -1 - pad)
+            end
         end
 
         -- 3. Decompress if needed (AES-128-CBC compressed entries)
@@ -664,10 +862,10 @@ function epub.extractCoverImage(inputPath, bookKey)
                 table.insert(chunks, ffi.string(ptr, len))
                 return true
             end)
-            if not ok then
-                return nil, "Failed to inflate decrypted cover: " .. tostring(updErr)
+            local finOk = inf:finalize()
+            if not ok or not finOk then
+                return nil, "Failed to inflate decrypted cover: " .. tostring(updErr or "truncated stream")
             end
-            inf:finalize()
             data = table.concat(chunks)
         else
             data = body

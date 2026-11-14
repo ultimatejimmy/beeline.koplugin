@@ -31,35 +31,102 @@ local M = {}
 -- _master_to_ephem[master_path] = temp_path
 local _ephem_to_master = {}
 local _master_to_ephem = {}
+local _ephem_refs = {}
+local _reader_owned = {}
 local _hooks_installed = false
+
+local EPHEMERAL_RAM_HEADROOM_BYTES = 12 * 1024 * 1024 -- keep >= 12 MB free on /tmp tmpfs
+
+local function shellQuote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+local function normalizeZipPath(path)
+    if type(path) ~= "string" then return "" end
+    local clean = path:gsub("\\", "/"):gsub("^%./+", ""):gsub("^/+", ""):gsub("//+", "/")
+    return clean
+end
+
+local function isValidEpubArchive(file_path)
+    local ok_arch, Archiver = pcall(require, "ffi/archiver")
+    if not ok_arch or not Archiver or not Archiver.Reader or type(Archiver.Reader.open) ~= "function" then
+        -- Headless unit test without Archiver implementation
+        return true
+    end
+    local reader = Archiver.Reader:new()
+    if not reader:open(file_path) then
+        return false
+    end
+    local has_container = false
+    for entry in reader:iterate() do
+        if entry.mode == "file" and normalizeZipPath(entry.path):lower() == "meta-inf/container.xml" then
+            has_container = true
+            break
+        end
+    end
+    local err = reader.err
+    reader:close()
+    return has_container and (err == nil)
+end
 
 -- ---------------------------------------------------------------------------
 -- Ephemeral Path & Orphan Management
 -- ---------------------------------------------------------------------------
 
---- Resolves the directory for volatile ephemeral files (prefers /tmp ramdisk)
-local function getEphemeralDir()
+local function getCandidateDirs()
     local ok_ds, DS = pcall(require, "datastorage")
-    local candidates = {
-        "/tmp",
-        "/dev/shm",
-        "/var/tmp",
+    local base = (ok_ds and DS and DS.getDataDir and DS:getDataDir()) or "/tmp"
+    local cache_dir = base .. "/cache/beeline.koplugin/ephemeral"
+    return {
+        ram = { "/tmp", "/dev/shm" },
+        extra = { "/var/tmp" },
+        cache = cache_dir,
     }
-    for _, dir in ipairs(candidates) do
+end
+
+--- Resolves the directory for volatile ephemeral files (prefers /tmp ramdisk when space allows)
+local function getEphemeralDir(required_bytes)
+    local dirs = getCandidateDirs()
+    local ok_fu, ffiutil = pcall(require, "ffi/ffiutil")
+    local has_df = ok_fu and ffiutil and type(ffiutil.df) == "function"
+    local needed = (tonumber(required_bytes) or 0) + EPHEMERAL_RAM_HEADROOM_BYTES
+
+    for _, dir in ipairs(dirs.ram) do
+        if lfs.attributes(dir, "mode") == "directory" then
+            if not has_df then
+                return dir
+            end
+            local ok_df, _, free_bytes = pcall(ffiutil.df, dir)
+            if ok_df and type(free_bytes) == "number" then
+                if free_bytes >= needed then
+                    return dir
+                end
+            else
+                return dir
+            end
+        end
+    end
+
+    -- Fallback to KOReader cache directory if RAM tmpfs is unavailable or lacks headroom
+    local cache_dir = dirs.cache
+    if lfs.attributes(cache_dir, "mode") ~= "directory" then
+        pcall(os.execute, "mkdir -p " .. shellQuote(cache_dir) .. " 2>/dev/null")
+    end
+    if lfs.attributes(cache_dir, "mode") == "directory" then
+        return cache_dir
+    end
+
+    for _, dir in ipairs(dirs.extra) do
         if lfs.attributes(dir, "mode") == "directory" then
             return dir
         end
     end
-    -- Fallback to KOReader cache directory if /tmp is not available
-    local base = (ok_ds and DS and DS.getDataDir and DS:getDataDir()) or "/tmp"
-    local cache_dir = base .. "/cache/beeline.koplugin/ephemeral"
-    pcall(os.execute, "mkdir -p '" .. cache_dir .. "' 2>/dev/null")
-    return cache_dir
+    return "/tmp"
 end
 
---- Generates a unique ephemeral file path in volatile RAM
-local function generateEphemeralPath(master_path)
-    local dir = getEphemeralDir()
+--- Generates a unique ephemeral file path
+local function generateEphemeralPath(master_path, required_bytes)
+    local dir = getEphemeralDir(required_bytes)
     local filename = master_path and (master_path:match("([^/\\]+)$") or "book.epub") or "book.epub"
     local base, ext = filename:match("^(.+)(%..+)$")
     base = base or filename
@@ -93,25 +160,93 @@ local function secureRemove(file_path)
     return pcall(os.remove, file_path)
 end
 
+local function sanitizeReaderSettings()
+    if not G_reader_settings or type(G_reader_settings.readSetting) ~= "function" then
+        return
+    end
+    local function isVolatilePath(p)
+        if type(p) ~= "string" or p == "" then return false end
+        return p == "/tmp" or p == "/dev/shm" or p == "/var/tmp"
+            or p:match("^/tmp/bln_ephem_") ~= nil
+            or p:match("^/dev/shm/bln_ephem_") ~= nil
+            or p:match("bln_ephem_") ~= nil
+            or p:match("/cache/beeline%.koplugin/ephemeral") ~= nil
+    end
+
+    local lastfile = G_reader_settings:readSetting("lastfile")
+    if isVolatilePath(lastfile) and not _ephem_to_master[lastfile] then
+        local replacement = M._last_master_path
+        if replacement and lfs.attributes(replacement, "mode") == "file" then
+            G_reader_settings:saveSetting("lastfile", replacement)
+        elseif type(G_reader_settings.delSetting) == "function" then
+            G_reader_settings:delSetting("lastfile")
+        else
+            G_reader_settings:saveSetting("lastfile", nil)
+        end
+    end
+
+    local lastdir = G_reader_settings:readSetting("lastdir")
+    if isVolatilePath(lastdir) then
+        local fallback_dir = G_reader_settings:readSetting("home_dir")
+        if M._last_master_path then
+            local ok_u, util = pcall(require, "util")
+            if ok_u and util and util.splitFilePathName then
+                local master_dir = util.splitFilePathName(M._last_master_path)
+                if master_dir and lfs.attributes(master_dir, "mode") == "directory" then
+                    fallback_dir = master_dir
+                end
+            end
+        end
+        if fallback_dir and fallback_dir ~= "" then
+            G_reader_settings:saveSetting("lastdir", fallback_dir)
+        elseif type(G_reader_settings.delSetting) == "function" then
+            G_reader_settings:delSetting("lastdir")
+        end
+    end
+end
+
 --- Cleans up all orphaned ephemeral files from previous crashes or ungraceful reboots
 function M.cleanupAllOrphans()
-    local dir = getEphemeralDir()
-    if not dir or lfs.attributes(dir, "mode") ~= "directory" then return 0 end
+    local dirs = getCandidateDirs()
+    local all_dirs = {}
+    local seen = {}
+    for _, d in ipairs(dirs.ram) do
+        if not seen[d] then seen[d] = true; table.insert(all_dirs, d) end
+    end
+    for _, d in ipairs(dirs.extra) do
+        if not seen[d] then seen[d] = true; table.insert(all_dirs, d) end
+    end
+    if dirs.cache and not seen[dirs.cache] then
+        seen[dirs.cache] = true
+        table.insert(all_dirs, dirs.cache)
+    end
 
     local cleaned = 0
-    local ok, iter, dir_obj = pcall(lfs.dir, dir)
-    if ok and iter then
-        for entry in iter, dir_obj do
-            if entry:match("^bln_ephem_") then
-                local full = dir .. "/" .. entry
-                -- Never delete a file currently registered in an active session
-                if not _ephem_to_master[full] then
-                    secureRemove(full)
-                    cleaned = cleaned + 1
+    for _, dir in ipairs(all_dirs) do
+        if dir and lfs.attributes(dir, "mode") == "directory" then
+            local ok, iter, dir_obj = pcall(lfs.dir, dir)
+            if ok and iter then
+                for entry in iter, dir_obj do
+                    if entry:match("^bln_ephem_") then
+                        local full = dir .. "/" .. entry
+                        -- Never delete a file currently registered in an active session
+                        if not _ephem_to_master[full] then
+                            secureRemove(full)
+                            cleaned = cleaned + 1
+                        end
+                    end
                 end
             end
         end
     end
+
+    if epub and type(epub.cleanupWorkDirs) == "function" then
+        local has_active = (next(_ephem_to_master) ~= nil)
+        pcall(epub.cleanupWorkDirs, has_active and 3600 or 0)
+    end
+
+    pcall(sanitizeReaderSettings)
+
     if cleaned > 0 then
         logger.info("beeline_ephemeral: cleaned " .. cleaned .. " orphaned session files")
     end
@@ -142,16 +277,34 @@ function M.isAdeptEncrypted(file_path)
     local isZip = magic:sub(1, 4) == "PK" .. string.char(0x03, 0x04)
 
     if isZip then
-        -- Quick probe for EPUB: check if rights.xml or adept encryption.xml exists
+        -- Quick probe for EPUB: iterate entries first (Archiver.Reader:seek requires iteration)
         local ok_arch, Archiver = pcall(require, "ffi/archiver")
-        if ok_arch and Archiver and Archiver.Reader then
+        if ok_arch and Archiver and Archiver.Reader and type(Archiver.Reader.open) == "function" then
             local reader = Archiver.Reader:new()
             if reader:open(file_path) then
-                local has_rights = (reader:extractToMemory("META-INF/rights.xml") ~= nil)
+                local rights_entry = nil
+                local enc_entry = nil
+                for entry in reader:iterate() do
+                    if entry.mode == "file" then
+                        local norm = normalizeZipPath(entry.path):lower()
+                        if norm == "meta-inf/rights.xml" then
+                            rights_entry = entry.path
+                            break
+                        elseif norm == "meta-inf/encryption.xml" then
+                            enc_entry = entry.path
+                        end
+                    end
+                end
+                local has_rights = (rights_entry ~= nil)
                 local has_adept_enc = false
-                if not has_rights then
-                    local enc_xml = reader:extractToMemory("META-INF/encryption.xml")
-                    if enc_xml and (enc_xml:find("http://ns.adobe.com/adept", 1, true) or enc_xml:find("xmlns:adept", 1, true)) then
+                if not has_rights and enc_entry then
+                    local enc_xml = reader:extractToMemory(enc_entry)
+                    if enc_xml and (
+                        enc_xml:find("http://ns.adobe.com/adept", 1, true)
+                        or enc_xml:find("xmlns:adept", 1, true)
+                        or enc_xml:find("http://www.w3.org/2001/04/xmlenc#aes128-cbc", 1, true)
+                        or enc_xml:find("http://ns.adobe.com/adept/xmlenc#aes128-cbc-uncompressed", 1, true)
+                    ) then
                         has_adept_enc = true
                     end
                 end
@@ -192,38 +345,67 @@ end
 -- Session Lifecycle (Prepare & Cleanup)
 -- ---------------------------------------------------------------------------
 
---- Decrypts master book into volatile RAM (/tmp) and registers reading session
+--- Decrypts master book into volatile RAM (/tmp) or cache and registers reading session
 function M.prepareSession(master_path)
     if not master_path or master_path == "" then
         return nil, "No master path provided"
     end
 
-    -- Return existing active session if already opened
-    if _master_to_ephem[master_path] and lfs.attributes(_master_to_ephem[master_path], "mode") == "file" then
-        return _master_to_ephem[master_path]
+    local isPdf = (master_path:lower():match("%.pdf$") ~= nil)
+
+    -- Return existing active session only if non-empty and valid
+    local existing_temp = _master_to_ephem[master_path]
+    if existing_temp then
+        local attr = lfs.attributes(existing_temp)
+        local valid = attr and attr.mode == "file" and (attr.size == nil or attr.size > 0)
+        if valid and not isPdf then
+            valid = isValidEpubArchive(existing_temp)
+        end
+        if valid then
+            return existing_temp
+        end
+        logger.warn("beeline_ephemeral: discarding stale/corrupt cached session " .. tostring(existing_temp))
+        M.cleanupSession(existing_temp)
     end
 
-    local activation = DRM.restoreActivation()
-    if not activation or not activation.creds then
-        return nil, "Device ADEPT activation missing; please activate in Beeline settings"
+    local tracked = State.getTrackedBook(master_path)
+    local has_cached_key = (not isPdf) and tracked and type(tracked.book_key_hex) == "string" and tracked.book_key_hex ~= ""
+    local activation = nil
+    if not has_cached_key then
+        activation = DRM.restoreActivation()
+        if not activation or not activation.creds then
+            return nil, "Device ADEPT activation missing; please activate in Beeline settings"
+        end
     end
 
-    local temp_path = generateEphemeralPath(master_path)
+    local master_attr = lfs.attributes(master_path)
+    local master_size = (master_attr and master_attr.size) or 0
+    local required_bytes = master_size > 0 and math.floor(master_size * 2.5) or 0
+    local temp_path = generateEphemeralPath(master_path, required_bytes)
     logger.info("beeline_ephemeral: preparing session " .. tostring(master_path) .. " -> " .. tostring(temp_path))
 
-    local isPdf = (master_path:lower():match("%.pdf$") ~= nil)
+    local status_msg = nil
+    local ok_uim, UIManager = pcall(require, "ui/uimanager")
+    local ok_im, InfoMessage = pcall(require, "ui/widget/infomessage")
+    if ok_uim and ok_im and UIManager and InfoMessage and type(UIManager.show) == "function" then
+        pcall(function()
+            status_msg = InfoMessage:new{ text = _("Decrypting book…"), timeout = 0 }
+            UIManager:show(status_msg)
+            if type(UIManager.forceRePaint) == "function" then
+                UIManager:forceRePaint()
+            end
+        end)
+    end
 
     local ok_dec, dec_res, dec_err = pcall(function()
         if isPdf then
             local pdf = require("beeline_adobe_pdf")
-            local tracked = State.getTrackedBook(master_path)
             local encKey = tracked and tracked.encrypted_key
             return pdf.decryptAdobePdf(master_path, temp_path, nil, activation.creds.licenseKey, encKey)
         else
             -- 1. Resolve book key
             local bookKey = nil
-            local tracked = State.getTrackedBook(master_path)
-            if tracked and tracked.book_key_hex then
+            if has_cached_key then
                 local util = require("beeline_adobe_util")
                 bookKey = util.hex.decode(tracked.book_key_hex)
             elseif tracked and tracked.encrypted_key then
@@ -246,11 +428,22 @@ function M.prepareSession(master_path)
         end
     end)
 
+    if status_msg and ok_uim and UIManager and type(UIManager.close) == "function" then
+        pcall(function() UIManager:close(status_msg) end)
+    end
+
     if not ok_dec or not dec_res then
         secureRemove(temp_path)
         local err_msg = not ok_dec and tostring(dec_res) or tostring(dec_err or "decryption failed")
         logger.err("beeline_ephemeral: session prep failed: " .. err_msg)
         return nil, err_msg
+    end
+
+    local out_attr = lfs.attributes(temp_path)
+    if not out_attr or out_attr.mode ~= "file" or (out_attr.size ~= nil and out_attr.size == 0) then
+        secureRemove(temp_path)
+        logger.err("beeline_ephemeral: decrypted session output is missing or empty")
+        return nil, "Decrypted book output was empty"
     end
 
     -- Register session mappings
@@ -282,6 +475,8 @@ function M.cleanupSession(path)
         logger.info("beeline_ephemeral: terminating session for " .. tostring(temp_path))
         secureRemove(temp_path)
         _ephem_to_master[temp_path] = nil
+        _ephem_refs[temp_path] = nil
+        _reader_owned[temp_path] = nil
     end
     if master_path then
         M._last_master_path = master_path
@@ -392,6 +587,7 @@ function M.installHooks()
             if file and State.getDrmKeepEncrypted() and M.isAdeptEncrypted(file) then
                 local temp_file, err = M.prepareSession(file)
                 if temp_file then
+                    _reader_owned[temp_file] = true
                     return orig_fm_openFile(self_fm, temp_file, provider, doc_caller_callback, aux_caller_callback, after_open_callback)
                 else
                     logger.err("beeline_ephemeral: FileManager could not decrypt ADEPT book: " .. tostring(err))
@@ -492,9 +688,34 @@ function M.installHooks()
             if file and State.getDrmKeepEncrypted() and M.isAdeptEncrypted(file) then
                 local temp_file, err = M.prepareSession(file)
                 if temp_file then
-                    return orig_openDocument(self_dr, temp_file, provider)
+                    local doc, open_err = orig_openDocument(self_dr, temp_file, provider)
+                    if not doc then
+                        if not _reader_owned[temp_file] and (_ephem_refs[temp_file] or 0) <= 0 then
+                            M.cleanupSession(temp_file)
+                        end
+                        return nil, open_err
+                    end
+                    if not _reader_owned[temp_file] and type(doc) == "table" and not doc._beeline_close_wrapped then
+                        _ephem_refs[temp_file] = (_ephem_refs[temp_file] or 0) + 1
+                        local orig_doc_close = doc.close
+                        doc._beeline_close_wrapped = true
+                        doc.close = function(self_doc, ...)
+                            local res = nil
+                            if type(orig_doc_close) == "function" then
+                                res = orig_doc_close(self_doc, ...)
+                            end
+                            local rem = (_ephem_refs[temp_file] or 1) - 1
+                            _ephem_refs[temp_file] = rem
+                            if rem <= 0 and not _reader_owned[temp_file] then
+                                M.cleanupSession(temp_file)
+                            end
+                            return res
+                        end
+                    end
+                    return doc, open_err
                 else
                     logger.err("beeline_ephemeral: DocumentRegistry could not decrypt ADEPT book: " .. tostring(err))
+                    return nil, err or "Failed to decrypt ADEPT book"
                 end
             end
             return orig_openDocument(self_dr, file, provider)
@@ -519,6 +740,7 @@ function M.installHooks()
             if file and State.getDrmKeepEncrypted() and M.isAdeptEncrypted(file) then
                 local temp_file, err = M.prepareSession(file)
                 if temp_file then
+                    _reader_owned[temp_file] = true
                     return orig_showReader(self_rui, temp_file, provider, seamless, is_provider_forced, after_open_callback)
                 else
                     logger.err("beeline_ephemeral: could not open ADEPT book: " .. tostring(err))
@@ -541,7 +763,18 @@ function M.installHooks()
                 if file and State.getDrmKeepEncrypted() and M.isAdeptEncrypted(file) then
                     local temp_file, err = M.prepareSession(file)
                     if temp_file then
+                        _reader_owned[temp_file] = true
                         return orig_switchDocument(self_rui, temp_file, ...)
+                    else
+                        logger.err("beeline_ephemeral: switchDocument could not decrypt ADEPT book: " .. tostring(err))
+                        local ok_uim, UIManager = pcall(require, "ui/uimanager")
+                        local ok_im, InfoMessage = pcall(require, "ui/widget/infomessage")
+                        if ok_uim and ok_im and UIManager and InfoMessage then
+                            UIManager:show(InfoMessage:new{
+                                text = _("Could not open ADEPT book:\n%s", tostring(err))
+                            })
+                        end
+                        return nil
                     end
                 end
                 return orig_switchDocument(self_rui, file, ...)
@@ -554,6 +787,10 @@ function M.installHooks()
             local master_file = current_file and M.getMasterPath(current_file)
             if master_file and master_file ~= current_file then
                 M._last_master_path = master_file
+            end
+            if current_file then
+                _reader_owned[current_file] = nil
+                _ephem_refs[current_file] = nil
             end
             local res = orig_onClose(self_rui, full_refresh)
             if current_file and M.isEphemeralPath(current_file) then
@@ -649,8 +886,11 @@ end
 M._getEphemeralDir = getEphemeralDir
 M._generateEphemeralPath = generateEphemeralPath
 M._secureRemove = secureRemove
+M._sanitizeReaderSettings = sanitizeReaderSettings
 M._ephem_to_master = _ephem_to_master
 M._master_to_ephem = _master_to_ephem
+M._ephem_refs = _ephem_refs
+M._reader_owned = _reader_owned
 
 -- Auto-install hooks on require so protection is immediate
 pcall(M.installHooks)

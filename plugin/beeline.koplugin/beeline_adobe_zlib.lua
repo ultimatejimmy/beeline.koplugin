@@ -123,6 +123,10 @@ else
     end
 end
 
+-- Anchor the clib handle on the module table so LuaJIT GC cannot dlclose libz
+-- while casted function pointers (fn_inflate*) are still in use.
+zlib._libz = libz
+
 -- Cross-plugin ABI compatibility:
 -- In LuaJIT FFI, if another plugin (like libby-dashboard) declared inflateInit2_
 -- with a custom struct pointer type (e.g. libby_z_stream *), direct calls fail
@@ -216,7 +220,15 @@ end
 
 function buildInflater(stream)
     local outbuf = ffi.new("uint8_t[?]", CHUNK_SIZE)
-    local finished = false
+    local stream_ended = false
+    local freed = false
+
+    local function freeStream()
+        if not freed then
+            fn_inflateEnd(stream)
+            freed = true
+        end
+    end
 
     local inflater = {}
 
@@ -225,7 +237,7 @@ function buildInflater(stream)
     -- @param chunk_len length of the chunk in bytes
     -- @param sink      function(ptr, len) called with each output block
     function inflater:update(chunk, chunk_len, sink)
-        if finished then
+        if freed or stream_ended then
             return nil, "inflater already finalized"
         end
         stream[0].next_in = ffi.cast("unsigned char *", chunk)
@@ -240,27 +252,31 @@ function buildInflater(stream)
             if produced > 0 and sink then
                 local ok, err = sink(outbuf, produced)
                 if ok == false then
+                    freeStream()
                     return nil, err
                 end
             end
 
             if rc == Z_STREAM_END then
-                finished = true
+                stream_ended = true
+                freeStream()
                 break
             end
             if rc ~= Z_OK and (rc ~= Z_BUF_ERROR or produced == 0) then
-                fn_inflateEnd(stream)
+                freeStream()
                 return nil, "inflate failed: " .. tostring(rc)
             end
         end
         return true
     end
 
+    function inflater:isFinished()
+        return stream_ended
+    end
+
     function inflater:finalize()
-        if not finished then
-            fn_inflateEnd(stream)
-        end
-        finished = true
+        freeStream()
+        return stream_ended
     end
 
     inflater.close = inflater.finalize

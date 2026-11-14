@@ -69,12 +69,14 @@ local function sanitizeFilename(name)
 end
 
 local function ensureDir(dir)
+    if not dir or dir == "" then return end
     local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
     if not ok_lfs then ok_lfs, lfs = pcall(require, "lfs") end
     if ok_lfs and lfs and lfs.mkdir then
         pcall(lfs.mkdir, dir)
     end
-    pcall(os.execute, "mkdir -p " .. dir .. " 2>/dev/null")
+    local quoted = "'" .. tostring(dir):gsub("'", "'\\''") .. "'"
+    pcall(os.execute, "mkdir -p " .. quoted .. " 2>/dev/null")
 end
 
 local _asset_path_cache = {}
@@ -626,7 +628,12 @@ function M.showQRCodeDialog(pairing_code, worker_url, on_close_cb)
             if code_hash then
                 local ok, success, parsed = pcall(Client.registerPairingCode, worker_url, code_hash, device_id)
                 if ok and success and type(parsed) == "table" and parsed.claimed then
-                    -- Already claimed! Rotate right now
+                    -- Already claimed! Persist pairing and rotate right now
+                    if State.markPairingClaimed then
+                        State.markPairingClaimed(current_code)
+                    else
+                        State.addPairedBrowser(current_code)
+                    end
                     local fresh = State.regeneratePairingCode()
                     refresh_qr(fresh)
                     return
@@ -945,6 +952,11 @@ function M.showMainDialog(plugin_instance, on_close_cb)
         if code_hash then
             local ok, success, parsed = pcall(Client.registerPairingCode, worker_url, code_hash, device_id)
             if ok and success and type(parsed) == "table" and parsed.claimed then
+                if State.markPairingClaimed then
+                    State.markPairingClaimed(pairing_code)
+                else
+                    State.addPairedBrowser(pairing_code)
+                end
                 pairing_code = State.regeneratePairingCode()
                 local new_h = Crypto.getCodeHash(pairing_code)
                 if new_h then
@@ -999,12 +1011,26 @@ function M.showMainDialog(plugin_instance, on_close_cb)
         local current_code = State.getPairingCode()
         worker_url = s.worker_url or State.DEFAULT_WORKER_URL
 
-        -- Title Header with Settings and Close Feather Icons
+        -- Title Header with Bee Icon, Settings and Close Feather Icons
+        local bee_icon = ImageWidget:new{
+            file = getAssetPath("bee.png"),
+            width = sc(28),
+            height = sc(28),
+            scale_factor = 0,
+            is_icon = true,
+            alpha = true,
+        }
         local title_label = TextWidget:new{
             text = _("Beeline"),
             face = Font:getFace("NotoSerif-Regular.ttf", theme.title_font_size or 22),
             bold = true,
             fgcolor = Blitbuffer.COLOR_BLACK,
+        }
+        local header_title = HorizontalGroup:new{
+            align = "center",
+            bee_icon,
+            HorizontalSpan:new{ width = sc(8) },
+            title_label,
         }
 
         local settings_header_btn = createIconButton{
@@ -1028,10 +1054,11 @@ function M.showMainDialog(plugin_instance, on_close_cb)
             callback = close_cb,
         }
 
-        local title_left_w = (title_label.getSize and title_label:getSize().w) or sc(100)
+        local title_left_w = (header_title.getSize and header_title:getSize().w) or sc(136)
         local icons_w = sc(74)
         local title_row = HorizontalGroup:new{
-            title_label,
+            align = "center",
+            header_title,
             HorizontalSpan:new{ width = math.max(sc(8), inner_w - title_left_w - icons_w) },
             settings_header_btn,
             HorizontalSpan:new{ width = sc(6) },
@@ -1381,6 +1408,11 @@ function M.showMainDialog(plugin_instance, on_close_cb)
                 if c_hash then
                     local ok, success, parsed = pcall(Client.checkPairingCode, worker_url, c_hash)
                     if ok and success and type(parsed) == "table" and parsed.claimed then
+                        if State.markPairingClaimed then
+                            State.markPairingClaimed(current_code)
+                        else
+                            State.addPairedBrowser(current_code)
+                        end
                         M.showToast(_("✓ Browser paired! Code used."), 3)
                         local fresh = State.regeneratePairingCode()
                         local dev_id = State.getDeviceId()
@@ -1749,8 +1781,9 @@ function M.showSettingsDialog(plugin_instance, on_close_cb)
                         local email_dlg
                         email_dlg = InputDialog:new{
                             title = _("ByteBooks Email"),
-                            description = _("ByteBooks links fulfillment to your account so the same .acsm file can be read on multiple devices."),
+                            description = _("Sign in with your ByteBooks account (https://dtsbytebooks.com). Legacy Adobe IDs must be migrated or registered at dtsbytebooks.com first."),
                             input = acct_info.email or "",
+                            allow_newline = false,
                             buttons = {
                                 {
                                     {
@@ -1761,6 +1794,7 @@ function M.showSettingsDialog(plugin_instance, on_close_cb)
                                     {
                                         text = _("Next"),
                                         is_primary = true,
+                                        is_enter_default = true,
                                         callback = function()
                                             local email = email_dlg:getInputText():gsub("^%s*(.-)%s*$", "%1")
                                             UIManager:close(email_dlg)
@@ -1770,7 +1804,8 @@ function M.showSettingsDialog(plugin_instance, on_close_cb)
                                             pass_dlg = InputDialog:new{
                                                 title = _("ByteBooks Password"),
                                                 input = "",
-                                                type = "password",
+                                                text_type = "password",
+                                                allow_newline = false,
                                                 buttons = {
                                                     {
                                                         {
@@ -1781,6 +1816,7 @@ function M.showSettingsDialog(plugin_instance, on_close_cb)
                                                         {
                                                             text = _("Sign In"),
                                                             is_primary = true,
+                                                            is_enter_default = true,
                                                             callback = function()
                                                                 local pass = pass_dlg:getInputText()
                                                                 UIManager:close(pass_dlg)
@@ -1793,9 +1829,16 @@ function M.showSettingsDialog(plugin_instance, on_close_cb)
                                                                         if res then
                                                                             M.showToast(_("ByteBooks activation successful!"), 3)
                                                                         else
+                                                                            local err_str = tostring(err or ""):gsub("%%(%x%x)", function(h)
+                                                                                return string.char(tonumber(h, 16))
+                                                                            end)
+                                                                            local err_lower = err_str:lower()
+                                                                            if err_lower:find("user does not exist", 1, true) or err_lower:find("e_adept_reset_pw_required", 1, true) then
+                                                                                err_str = err_str .. "\n\n" .. _("Make sure you have registered or migrated your Adobe ID at https://dtsbytebooks.com/transition-help using the exact same lowercase email.")
+                                                                            end
                                                                             M.showCardDialog{
                                                                                 title = _("Authorization Failed"),
-                                                                                body_text = _("Could not activate ByteBooks account:\n%s", tostring(err)),
+                                                                                body_text = _("Could not activate ByteBooks account:\n%s", err_str),
                                                                                 buttons = {
                                                                                     { text = _("OK"), is_primary = true, callback = function() end }
                                                                                 }
@@ -1810,12 +1853,14 @@ function M.showSettingsDialog(plugin_instance, on_close_cb)
                                                 },
                                             }
                                             UIManager:show(pass_dlg)
+                                            pass_dlg:onShowKeyboard()
                                         end,
                                     },
                                 },
                             },
                         }
                         UIManager:show(email_dlg)
+                        email_dlg:onShowKeyboard()
                     end
                 })
             end
@@ -2362,28 +2407,37 @@ function M.receiveFiles(plugin_instance, is_background, on_done)
 
                 local out_f = io.open(target_path, "wb")
                 if out_f then
-                    out_f:write(decrypted.data)
-                    out_f:close()
-
-                    -- Delete remote copy
-                    Client.deleteRemoteFile(worker_url, dev_id, file_meta.id)
-
-                    local is_acsm_file = (filename:lower():match("%.acsm$") ~= nil)
-                    table.insert(received_items, {
-                        path = target_path,
-                        filename = filename,
-                        size = #decrypted.data,
-                        is_book = not is_acsm_file,
-                    })
-
-                    -- Update file manager immediately if it's a real book
-                    if not is_acsm_file then
-                        refreshFileManager(inbox_dir)
+                    local write_ok = out_f:write(decrypted.data)
+                    if write_ok and out_f.flush then
+                        local fl_ok = out_f:flush()
+                        if fl_ok == false then write_ok = false end
                     end
+                    local close_ok = out_f:close()
+                    if close_ok == false then write_ok = false end
+                    if not write_ok then
+                        pcall(os.remove, target_path)
+                        failed_count = failed_count + 1
+                    else
+                        -- Delete remote copy only after verified local write
+                        Client.deleteRemoteFile(worker_url, dev_id, file_meta.id)
 
-                    -- If receiving multiple files in background, show progress toast like Calibre
-                    if is_background and #all_files > 1 then
-                        showDownloadToast(_("Received file %d of %d:\n%s", #received_items, #all_files, filename), 2, "download", _("Incoming Transfer"))
+                        local is_acsm_file = (filename:lower():match("%.acsm$") ~= nil)
+                        table.insert(received_items, {
+                            path = target_path,
+                            filename = filename,
+                            size = #decrypted.data,
+                            is_book = not is_acsm_file,
+                        })
+
+                        -- Update file manager immediately if it's a real book
+                        if not is_acsm_file then
+                            refreshFileManager(inbox_dir)
+                        end
+
+                        -- If receiving multiple files in background, show progress toast like Calibre
+                        if is_background and #all_files > 1 then
+                            showDownloadToast(_("Received file %d of %d:\n%s", #received_items, #all_files, filename), 2, "download", _("Incoming Transfer"))
+                        end
                     end
                 else
                     failed_count = failed_count + 1

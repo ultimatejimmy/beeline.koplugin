@@ -53,7 +53,16 @@ function M.restoreActivation()
     local restored, err = adobe.restoreActivation(saved)
     if not restored then
         log.warn("beeline_drm: could not restore saved activation: " .. tostring(err))
-        State.clearDrmActivation()
+        if type(saved) ~= "table"
+            or not saved.deviceKey
+            or not saved.privateLicenseKey
+            or not saved.user
+            or not saved.pkcs12
+            or not saved.deviceUUID
+            or not saved.fingerprint
+        then
+            State.clearDrmActivation()
+        end
         return nil
     end
     return restored
@@ -114,7 +123,8 @@ end
 --- Authorizes a ByteBooks ADEPT account with username & password
 --- Note: Passwords are NEVER saved to disk or state!
 function M.authorizeByteBooks(username, password)
-    if not username or username == "" or not password or password == "" then
+    username = type(username) == "string" and username:match("^%s*(.-)%s*$") or ""
+    if username == "" or not password or password == "" then
         return nil, "Missing username or password"
     end
 
@@ -136,7 +146,25 @@ function M.authorizeByteBooks(username, password)
         end
     end
 
-    local creds, signInErr = adobe.signIn(method, username, password, auth_info.certificate)
+    local login_username = username
+    local creds, signInErr = adobe.signIn(method, login_username, password, auth_info.certificate)
+    if not creds and type(signInErr) == "string" then
+        local err_l = signInErr:lower()
+        local is_not_found = err_l:find("user does not exist", 1, true) ~= nil
+            or err_l:find("user%20does%20not%20exist", 1, true) ~= nil
+        local lower_user = username:lower()
+        if is_not_found and lower_user ~= username then
+            log.info("beeline_drm: retrying ByteBooks sign-in with lowercase email " .. lower_user)
+            local retry_creds, retry_err = adobe.signIn(method, lower_user, password, auth_info.certificate)
+            if retry_creds then
+                creds = retry_creds
+                signInErr = nil
+                login_username = lower_user
+            elseif retry_err then
+                signInErr = retry_err
+            end
+        end
+    end
     if not creds then
         return nil, "ByteBooks authorization failed: " .. tostring(signInErr)
     end
@@ -152,8 +180,8 @@ function M.authorizeByteBooks(username, password)
         return nil, "Serialization failed: " .. tostring(serializeErr)
     end
 
-    State.saveDrmActivation(serialized, "bytebooks", username)
-    log.info("beeline_drm: ByteBooks authorization successful for " .. tostring(username))
+    State.saveDrmActivation(serialized, "bytebooks", login_username)
+    log.info("beeline_drm: ByteBooks authorization successful for " .. tostring(login_username))
 
     return {
         creds = creds,

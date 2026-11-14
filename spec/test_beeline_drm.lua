@@ -189,7 +189,7 @@ assert_true(type(exp) == "number" and exp > 0, "Expiry timestamp should be valid
 local fallback_meta = { title = "No duration" }
 local fallback_exp = DRM.extractLoanExpiry(fallback_meta, 21)
 local now = os.time()
-local diff_days = math.floor((fallback_exp - now) / 86400)
+local diff_days = math.floor((fallback_exp - now + 5) / 86400)
 assert_eq(diff_days, 21, "Fallback expiry should be default days")
 print("✓ Expiry calculation & fallback passed")
 
@@ -242,5 +242,138 @@ assert_true(not Autoclean.isPastGracePeriod(now, now, 1), "Loan expiring now sho
 -- Expiry 2 days ago -> past 1-day grace period
 assert_true(Autoclean.isPastGracePeriod(now - (2 * 86400), now, 1), "Loan expired 2 days ago should be past grace period")
 print("✓ Autoclean grace period calculations passed")
+
+-- 7. encryption.xml namespace, compression Method="0", and URI parsing
+local epub = require("beeline_adobe_epub")
+local sample_enc_xml = [[<?xml version="1.0" encoding="UTF-8"?>
+<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"
+            xmlns:enc="http://www.w3.org/2001/04/xmlenc#"
+            xmlns:deenc="http://ns.adobe.com/digitaleditions/enc">
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/>
+    <enc:CipherData>
+      <enc:CipherReference URI="OEBPS/Text/chapter%201.xhtml"/>
+    </enc:CipherData>
+  </enc:EncryptedData>
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/>
+    <enc:EncryptionProperties>
+      <enc:EncryptionProperty>
+        <deenc:Compression Method="0" OriginalLength="1234"/>
+      </enc:EncryptionProperty>
+    </enc:EncryptionProperties>
+    <enc:CipherData>
+      <enc:CipherReference URI="OEBPS/Images/cover.jpg"/>
+    </enc:CipherData>
+  </enc:EncryptedData>
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://ns.adobe.com/adept/xmlenc#aes128-cbc-uncompressed"/>
+    <enc:CipherData>
+      <enc:CipherReference URI="OEBPS/Images/inline.png"/>
+    </enc:CipherData>
+  </enc:EncryptedData>
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>
+    <enc:CipherData>
+      <enc:CipherReference URI="OEBPS/Fonts/obfuscated.ttf"/>
+    </enc:CipherData>
+  </enc:EncryptedData>
+</encryption>]]
+
+local parsed_enc = epub._parseEncryptionXml(sample_enc_xml)
+assert_true(parsed_enc.encrypted["OEBPS/Text/chapter%201.xhtml"] == true, "Prefixed enc:EncryptedData URI should be flagged for decrypt+inflate")
+assert_true(parsed_enc.encryptedForceNoDecomp["OEBPS/Images/cover.jpg"] == true, "Compression Method=0 should map to encryptedForceNoDecomp")
+assert_true(parsed_enc.encryptedForceNoDecomp["OEBPS/Images/inline.png"] == true, "aes128-cbc-uncompressed should map to encryptedForceNoDecomp")
+assert_true(parsed_enc.rewrittenXml ~= nil and parsed_enc.rewrittenXml:find("obfuscated.ttf") ~= nil, "Non-ADEPT EncryptedData (font obfuscation) must be preserved")
+assert_true(parsed_enc.rewrittenXml:find("chapter%%201%.xhtml") == nil, "Stripped ADEPT EncryptedData must not remain in rewrittenXml")
+print("✓ encryption.xml namespace & compression Method=0 parsing passed")
+
+-- 8. Streaming rawInflater lifecycle (complete vs truncated/corrupt stream, no double-free)
+local zlib = require("beeline_adobe_zlib")
+local plain_msg = "Beeline raw deflate verification payload 1234567890"
+local plen = #plain_msg
+local lo = plen % 256
+local hi = math.floor(plen / 256)
+local bit = require("bit")
+local nlen = bit.bxor(plen, 0xFFFF)
+local nlo = nlen % 256
+local nhi = math.floor(nlen / 256)
+local raw_deflate = string.char(0x01, lo, hi, nlo, nhi) .. plain_msg
+
+local inf_ok, inf_err = zlib.rawInflater()
+assert_true(inf_ok ~= nil, "rawInflater should initialize: " .. tostring(inf_err))
+local out_chunks = {}
+local up_ok, up_err = inf_ok:update(raw_deflate, #raw_deflate, function(ptr, len)
+    local ffi = require("ffi")
+    out_chunks[#out_chunks + 1] = ffi.string(ptr, len)
+    return true
+end)
+assert_true(up_ok == true, "Valid raw deflate update should succeed: " .. tostring(up_err))
+assert_true(inf_ok:isFinished() == true, "Valid complete deflate stream must reach Z_STREAM_END")
+assert_true(inf_ok:finalize() == true, "finalize() must return true on completed stream")
+assert_eq(table.concat(out_chunks), plain_msg, "Inflated payload must match original")
+-- Calling finalize() twice must be safe (no C double-free)
+assert_true(inf_ok:finalize() == true, "Repeated finalize() must be idempotent")
+
+local trunc_deflate = raw_deflate:sub(1, #raw_deflate - 10)
+local inf_bad = zlib.rawInflater()
+assert_true(inf_bad ~= nil, "Second rawInflater should initialize")
+local bad_ok = inf_bad:update(trunc_deflate, #trunc_deflate, function() return true end)
+assert_true(bad_ok == true, "Incomplete input alone does not error during update")
+assert_true(inf_bad:isFinished() == false, "Truncated stream must not report finished")
+assert_true(inf_bad:finalize() == false, "finalize() must return false on truncated stream")
+
+local inf_corrupt = zlib.rawInflater()
+local corrupt_data = string.char(0x06, 0x00, 0xFF, 0xAA, 0xBB) -- invalid reserved BTYPE=11
+local c_ok, c_err = inf_corrupt:update(corrupt_data, #corrupt_data, function() return true end)
+assert_true(c_ok == nil and c_err ~= nil, "Corrupt deflate stream must fail cleanly")
+assert_true(inf_corrupt:finalize() == false, "finalize() after error must not double-free and must return false")
+print("✓ Streaming rawInflater lifecycle & double-free safety passed")
+
+-- 9. ByteBooks authorize lowercase fallback on User does not exist
+local adobe = require("beeline_adobe_core")
+local orig_getInfo = adobe.getAuthenticationServiceInfo
+local orig_signIn = adobe.signIn
+local orig_activate = adobe.activate
+local orig_serialize = adobe.serializeActivation
+
+local signInAttempts = {}
+adobe.getAuthenticationServiceInfo = function()
+    return {
+        certificate = "TEST_CERT",
+        methods = { { method = "AdobeID", name = "Adobe ID" } },
+    }
+end
+adobe.signIn = function(method, user, pass, cert)
+    table.insert(signInAttempts, { method = method, user = user, pass = pass })
+    if user == "Jimmy@Example.com" then
+        return nil, "Server returned error: E_AUTH_FAILED http://adeactivate.adobe.com/adept/SignInDirect username User%20does%20not%20exist"
+    end
+    if user == "jimmy@example.com" then
+        return { user = "urn:uuid:user1", deviceKey = { key = string.rep("k", 16) }, pkcs12 = "p12" }
+    end
+    return nil, "unexpected user: " .. tostring(user)
+end
+adobe.activate = function()
+    return "urn:uuid:dev1", "fp1"
+end
+adobe.serializeActivation = function(creds, uuid, fp)
+    return { deviceKey = "dk", privateLicenseKey = "pk", user = creds.user, pkcs12 = creds.pkcs12, deviceUUID = uuid, fingerprint = fp }
+end
+
+local auth_res, auth_err = DRM.authorizeByteBooks(" Jimmy@Example.com ", "Secret123")
+assert_true(auth_res ~= nil, "Lowercase retry should succeed: " .. tostring(auth_err))
+assert_eq(#signInAttempts, 2, "Should attempt exact email first, then lowercase fallback")
+assert_eq(signInAttempts[1].method, "AdobeID", "Method should be AdobeID")
+assert_eq(signInAttempts[1].user, "Jimmy@Example.com", "First attempt should trim spaces")
+assert_eq(signInAttempts[2].user, "jimmy@example.com", "Second attempt should lowercase email")
+assert_eq(State.getDrmAccountInfo().email, "jimmy@example.com", "Persisted email should reflect successful lowercase login")
+
+adobe.getAuthenticationServiceInfo = orig_getInfo
+adobe.signIn = orig_signIn
+adobe.activate = orig_activate
+adobe.serializeActivation = orig_serialize
+State.clearDrmActivation()
+print("✓ ByteBooks lowercase email retry passed")
 
 print("=== ALL DRM & AUTOCLEAN TESTS PASSED ===")

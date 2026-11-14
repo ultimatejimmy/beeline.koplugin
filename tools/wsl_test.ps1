@@ -98,10 +98,10 @@ function Run-Workflow {
         node (Join-Path $specDir "test_crypto_roundtrip.js") > $null 2>&1
         $winRepoPath = (Get-Item $RepoRoot).FullName -replace '\\', '/'
         $wslRepoDir = (wsl wslpath -u $winRepoPath).Trim()
-        $luaTest = wsl bash -c "cd '$wslRepoDir' && /home/jimmy/squashfs-root/usr/lib/koreader/luajit spec/test_beeline_crypto.lua" 2>&1
+        $luaTest = wsl bash -c "cd '$wslRepoDir' && LD_LIBRARY_PATH='$SquashPath/usr/lib/koreader/libs' '$SquashPath/usr/lib/koreader/luajit' spec/test_beeline_crypto.lua" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host " FAILED" -ForegroundColor Red
-            Write-Host $luaTest
+            Write-Host ($luaTest | Out-String)
             return $false
         }
         Write-Host " PASSED" -ForegroundColor Green
@@ -111,10 +111,10 @@ function Run-Workflow {
     if (Test-Path (Join-Path $specDir "test_beeline_drm.lua")) {
         $winRepoPath = (Get-Item $RepoRoot).FullName -replace '\\', '/'
         $wslRepoDir = (wsl wslpath -u $winRepoPath).Trim()
-        $drmTest = wsl bash -c "cd '$wslRepoDir' && /home/jimmy/squashfs-root/usr/lib/koreader/luajit spec/test_beeline_drm.lua" 2>&1
+        $drmTest = wsl bash -c "cd '$wslRepoDir' && LD_LIBRARY_PATH='$SquashPath/usr/lib/koreader/libs' '$SquashPath/usr/lib/koreader/luajit' spec/test_beeline_drm.lua" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host " FAILED" -ForegroundColor Red
-            Write-Host $drmTest
+            Write-Host ($drmTest | Out-String)
             return $false
         }
         Write-Host " PASSED" -ForegroundColor Green
@@ -124,10 +124,10 @@ function Run-Workflow {
     if (Test-Path (Join-Path $specDir "test_beeline_ephemeral.lua")) {
         $winRepoPath = (Get-Item $RepoRoot).FullName -replace '\\', '/'
         $wslRepoDir = (wsl wslpath -u $winRepoPath).Trim()
-        $ephTest = wsl bash -c "cd '$wslRepoDir' && /home/jimmy/squashfs-root/usr/lib/koreader/luajit spec/test_beeline_ephemeral.lua" 2>&1
+        $ephTest = wsl bash -c "cd '$wslRepoDir' && LD_LIBRARY_PATH='$SquashPath/usr/lib/koreader/libs' '$SquashPath/usr/lib/koreader/luajit' spec/test_beeline_ephemeral.lua" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host " FAILED" -ForegroundColor Red
-            Write-Host $ephTest
+            Write-Host ($ephTest | Out-String)
             return $false
         }
         Write-Host " PASSED" -ForegroundColor Green
@@ -137,10 +137,10 @@ function Run-Workflow {
     if (Test-Path (Join-Path $specDir "test_beeline_ui_toast.lua")) {
         $winRepoPath = (Get-Item $RepoRoot).FullName -replace '\\', '/'
         $wslRepoDir = (wsl wslpath -u $winRepoPath).Trim()
-        $uiToastTest = wsl bash -c "cd '$wslRepoDir' && /home/jimmy/squashfs-root/usr/lib/koreader/luajit spec/test_beeline_ui_toast.lua" 2>&1
+        $uiToastTest = wsl bash -c "cd '$wslRepoDir' && LD_LIBRARY_PATH='$SquashPath/usr/lib/koreader/libs' '$SquashPath/usr/lib/koreader/luajit' spec/test_beeline_ui_toast.lua" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host " FAILED" -ForegroundColor Red
-            Write-Host $uiToastTest
+            Write-Host ($uiToastTest | Out-String)
             return $false
         }
         Write-Host " PASSED" -ForegroundColor Green

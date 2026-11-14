@@ -79,13 +79,20 @@ local function deserializeResponse(body, context)
     return parsed
 end
 
+local function decodePercentEncoded(s)
+    if type(s) ~= "string" then return s end
+    return (s:gsub("%%(%x%x)", function(hex)
+        return string.char(tonumber(hex, 16))
+    end))
+end
+
 local function serverError(parsed, fallback)
     local err = parsed and parsed.error
     if type(err) == "table" and err._attr and err._attr.data then
-        return err._attr.data
+        return decodePercentEncoded(err._attr.data)
     end
     if type(err) == "string" then
-        return err
+        return decodePercentEncoded(err)
     end
     return fallback or "Unknown Adobe server error"
 end

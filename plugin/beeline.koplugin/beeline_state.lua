@@ -2,6 +2,10 @@
 
 local M = {}
 
+local function _shellQuote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
 local function _getSettingsDir()
     local ok_ds, DS = pcall(require, "datastorage")
     local base = "/tmp"
@@ -16,7 +20,7 @@ local function _getSettingsDir()
         pcall(lfs.mkdir, base)
         pcall(lfs.mkdir, dir)
     end
-    pcall(os.execute, "mkdir -p " .. dir .. " 2>/dev/null")
+    pcall(os.execute, "mkdir -p " .. _shellQuote(dir) .. " 2>/dev/null")
     return dir
 end
 
@@ -24,12 +28,10 @@ local function _settingsPath()
     return _getSettingsDir() .. "/settings.json"
 end
 
-local function _readJson(path)
-    local f = io.open(path, "r")
-    if not f then return nil end
-    local content = f:read("*a")
-    f:close()
-
+local function _decodeJson(content)
+    if type(content) ~= "string" or content == "" then
+        return nil
+    end
     local ok_rj, rapidjson = pcall(require, "rapidjson")
     if ok_rj and rapidjson then
         local ok, data = pcall(rapidjson.decode, content)
@@ -40,6 +42,68 @@ local function _readJson(path)
         local ok, data = pcall(json.decode, content)
         if ok and type(data) == "table" then return data end
     end
+    return nil
+end
+
+local function _readFile(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local content = f:read("*a")
+    f:close()
+    return content
+end
+
+local function _writeAtomicFile(path, raw)
+    local tmp_path = path .. ".tmp"
+    local f = io.open(tmp_path, "wb")
+    if not f then
+        return false
+    end
+    local ok_w = f:write(raw)
+    if not ok_w then
+        pcall(function() f:close() end)
+        pcall(os.remove, tmp_path)
+        return false
+    end
+    if f.flush then
+        local ok_fl = f:flush()
+        if ok_fl == false then
+            pcall(function() f:close() end)
+            pcall(os.remove, tmp_path)
+            return false
+        end
+    end
+    local ok_cl = f:close()
+    if ok_cl == false then
+        pcall(os.remove, tmp_path)
+        return false
+    end
+
+    os.remove(path)
+    local ok_ren = os.rename(tmp_path, path)
+    if not ok_ren then
+        pcall(os.remove, tmp_path)
+        return false
+    end
+    return true
+end
+
+local function _readJson(path)
+    local primary_raw = _readFile(path)
+    local primary_data = _decodeJson(primary_raw)
+    if primary_data then
+        return primary_data
+    end
+
+    -- Recover from backup if primary settings file was truncated or corrupted by a forced restart
+    local bak_path = path .. ".bak"
+    local bak_raw = _readFile(bak_path)
+    local bak_data = _decodeJson(bak_raw)
+    if bak_data then
+        _writeAtomicFile(path, bak_raw)
+        return bak_data
+    end
+
     return nil
 end
 
@@ -69,13 +133,19 @@ local function _writeJson(path, tbl)
         raw = table.concat(lines, "\n")
     end
 
-    local f = io.open(path, "w")
-    if f then
-        f:write(raw)
-        f:close()
-        return true
+    -- Preserve last known-good settings in .bak before atomically replacing settings.json
+    local existing_raw = _readFile(path)
+    if _decodeJson(existing_raw) then
+        _writeAtomicFile(path .. ".bak", existing_raw)
     end
-    return false
+
+    if not _writeAtomicFile(path, raw) then
+        return false
+    end
+    if not existing_raw then
+        _writeAtomicFile(path .. ".bak", raw)
+    end
+    return true
 end
 
 M.DEFAULT_WORKER_URL = "https://beeline.ultimatejimmy.workers.dev"
@@ -127,8 +197,10 @@ function M.loadSettings()
     end
 
     -- Persistent device identity
+    local needs_save = false
     if not s.device_id or s.device_id == "" then
         s.device_id = _generateRandomHex(8)
+        needs_save = true
     end
     s.active_codes = s.active_codes or {}
     s.paired_browsers = s.paired_browsers or {}
@@ -165,15 +237,16 @@ function M.loadSettings()
     end
 
     -- Auto-generate or rotate pairing code if empty, legacy "BEE-", or expired
+    _cached_settings = s
     local code_age = os.time() - (tonumber(s.code_created_at) or 0)
     local is_legacy = type(s.pairing_code) == "string" and s.pairing_code:match("^BEE%-") ~= nil
     if not s.pairing_code or s.pairing_code == "" or is_legacy or code_age >= M.PAIRING_TTL then
-        s.pairing_code = M.generatePairingCode()
+        M.generatePairingCode()
+    elseif needs_save then
         _writeJson(_settingsPath(), s)
     end
 
-    _cached_settings = s
-    return s
+    return _cached_settings
 end
 
 function M.saveSettings(tbl)
@@ -253,6 +326,10 @@ function M.addPairedBrowser(code)
         created_at = os.time(),
     }
     M.saveSettings(s)
+end
+
+function M.markPairingClaimed(code)
+    return M.addPairedBrowser(code)
 end
 
 function M.getPairedBrowserCount()
@@ -473,14 +550,36 @@ function M.getTrackedBook(path)
 
     local ok_u, ffiUtil = pcall(require, "ffi/util")
     local norm_path = (ok_u and ffiUtil and ffiUtil.realpath and ffiUtil.realpath(path)) or path
+    local dir_part = path:match("^(.*)[/\\][^/\\]+$")
     local basename = path:match("([^/\\]+)$")
 
+    -- 1. Exact path or resolved realpath match
     for _, item in ipairs(s.drm_tracked) do
         if item.path == path or item.path == norm_path then
             return item
         end
-        if basename and item.path and item.path:match("([^/\\]+)$") == basename then
-            return item
+        if ok_u and ffiUtil and ffiUtil.realpath and item.path then
+            local item_real = ffiUtil.realpath(item.path)
+            if item_real and item_real == norm_path then
+                return item
+            end
+        end
+    end
+
+    -- 2. Same-directory basename match, or unique basename fallback
+    if basename then
+        local basename_matches = {}
+        for _, item in ipairs(s.drm_tracked) do
+            if item.path and item.path:match("([^/\\]+)$") == basename then
+                local item_dir = item.path:match("^(.*)[/\\][^/\\]+$")
+                if dir_part and item_dir == dir_part then
+                    return item
+                end
+                table.insert(basename_matches, item)
+            end
+        end
+        if #basename_matches == 1 then
+            return basename_matches[1]
         end
     end
     return nil
@@ -543,5 +642,11 @@ function M.untrackBook(path)
     s.drm_tracked = new_tracked
     return M.saveSettings(s)
 end
+
+function M._invalidateCache()
+    _cached_settings = nil
+end
+
+M._settingsPath = _settingsPath
 
 return M

@@ -173,8 +173,20 @@ function BeelinePlugin:init()
     local ok_eph, Ephemeral = pcall(require, plugin_path .. "beeline_ephemeral")
     if ok_eph and Ephemeral then
         Ephemeral.installHooks()
-        if not (self.ui and self.ui.document) then
+        local active_doc_file = self.ui and self.ui.document and self.ui.document.file
+        if not active_doc_file then
             Ephemeral.cleanupAllOrphans()
+        elseif not Ephemeral.isEphemeralPath(active_doc_file) and Ephemeral.isAdeptEncrypted(active_doc_file) then
+            -- Cold boot directly into an encrypted lastfile before hooks were installed:
+            -- reopen via ephemeral session on nextTick so crengine receives decrypted content.
+            if ok_ui and UIManager then
+                local rui = self.ui
+                UIManager:nextTick(function()
+                    if rui and rui.switchDocument then
+                        rui:switchDocument(active_doc_file)
+                    end
+                end)
+            end
         end
     else
         logger.err("beeline: could not initialize beeline_ephemeral: " .. tostring(Ephemeral))
@@ -313,6 +325,11 @@ function BeelinePlugin:onNetworkConnected()
             if code_hash then
                 local ok_reg, success, parsed = pcall(Client.registerPairingCode, worker_url, code_hash, device_id)
                 if ok_reg and success and type(parsed) == "table" and parsed.claimed then
+                    if State.markPairingClaimed then
+                        State.markPairingClaimed(pairing_code)
+                    else
+                        State.addPairedBrowser(pairing_code)
+                    end
                     pairing_code = State.regeneratePairingCode()
                     local new_hash = Crypto.getCodeHash(pairing_code)
                     if new_hash then

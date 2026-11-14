@@ -90,11 +90,20 @@ package.loaded["util"] = package.loaded["util"] or {
     end,
 }
 
+local mock_df_free = {}
 local mock_ffi_util = {
     orderedPairs = function(t) return pairs(t) end,
+    df = function(dir)
+        local free = mock_df_free[dir]
+        if free ~= nil then
+            return 100 * 1024 * 1024, free
+        end
+        return 100 * 1024 * 1024, 64 * 1024 * 1024
+    end,
 }
 package.loaded["ffi/util"] = package.loaded["ffi/util"] or mock_ffi_util
 package.loaded["ffi.util"] = package.loaded["ffi.util"] or mock_ffi_util
+package.loaded["ffi/ffiutil"] = package.loaded["ffi/ffiutil"] or mock_ffi_util
 package.loaded["ffi/posix_h"] = package.loaded["ffi/posix_h"] or {}
 package.loaded["ffi.posix_h"] = package.loaded["ffi.posix_h"] or {}
 package.loaded["ffi/archiver"] = package.loaded["ffi/archiver"] or {}
@@ -102,14 +111,15 @@ package.loaded["ffi.archiver"] = package.loaded["ffi.archiver"] or {}
 
 local mock_lfs = {
     attributes = function(path, key)
-        local f = io.open(path, "r")
-        if f then
-            f:close()
-            local res = { mode = "file", size = 100 }
+        if path and (os.execute("test -d '" .. tostring(path) .. "' 2>/dev/null") == 0 or path:match("%.sdr$")) then
+            local res = { mode = "directory", modification = os.time() }
             return key and res[key] or res
         end
-        if path:find("/tmp") or path:find("sdr") then
-            local res = { mode = "directory" }
+        local f = io.open(path, "rb")
+        if f then
+            local size = f:seek("end") or 0
+            f:close()
+            local res = { mode = "file", size = size, modification = os.time() }
             return key and res[key] or res
         end
         return nil
@@ -176,6 +186,34 @@ local mock_booklist = {
     setBookInfoCache = function(file, doc_settings) end,
 }
 package.loaded["ui/widget/booklist"] = mock_booklist
+
+local mock_doc_registry = {
+    _orig_calls = 0,
+    openDocument = function(self, file, provider)
+        self._orig_calls = self._orig_calls + 1
+        return {
+            file = file,
+            closed = false,
+            close = function(doc_self)
+                doc_self.closed = true
+            end,
+        }
+    end,
+}
+package.loaded["document/documentregistry"] = mock_doc_registry
+
+local reader_settings_store = {}
+G_reader_settings = {
+    readSetting = function(self, key)
+        return reader_settings_store[key]
+    end,
+    saveSetting = function(self, key, val)
+        reader_settings_store[key] = val
+    end,
+    delSetting = function(self, key)
+        reader_settings_store[key] = nil
+    end,
+}
 
 local plugin_dir = "plugin/beeline.koplugin"
 package.path = plugin_dir .. "/?.lua;" .. package.path
@@ -312,5 +350,109 @@ os.remove(test_sidecar_book .. ".sdr/metadata.epub.lua")
 os.remove(test_sidecar_book)
 os.execute("rmdir " .. test_sidecar_dir .. " 2>/dev/null")
 print("✓ Sidecar cover validation and sanitization passed")
+
+-- 9. State atomic write & .bak recovery + pairing persistence
+State.saveDrmActivation({ deviceKey = "testkey123", user = "urn:uuid:test" }, "anonymous", "")
+local before_dev_id = State.getDeviceId()
+local claim_code = State.getPairingCode()
+State.markPairingClaimed(claim_code)
+local count_before = State.getPairedBrowserCount()
+assert_true(count_before >= 1, "markPairingClaimed should persist a paired browser")
+
+-- Perform one more write so .bak holds the previous complete snapshot
+State.saveDrmActivation({ deviceKey = "testkey123", user = "urn:uuid:test", rev = 2 }, "anonymous", "")
+local spath = State._settingsPath()
+-- Corrupt primary settings file as would happen during forced power-off
+local f_corrupt = io.open(spath, "wb")
+assert_true(f_corrupt ~= nil, "Should open settings file to simulate corruption")
+f_corrupt:write("{corrupt truncated json")
+f_corrupt:close()
+
+State._invalidateCache()
+assert_eq(State.getDeviceId(), before_dev_id, "device_id must recover from .bak after primary corruption")
+assert_eq(State.getPairedBrowserCount(), count_before, "paired_browsers count must recover from .bak")
+local rec_act = State.getDrmActivation()
+assert_true(type(rec_act) == "table" and rec_act.deviceKey == "testkey123", "drm_activation must recover from .bak")
+os.remove(spath)
+os.remove(spath .. ".bak")
+State._invalidateCache()
+print("✓ State atomic write & .bak recovery passed")
+
+-- 10. Space-aware ephemeral directory selection (RAM headroom fallback)
+mock_df_free["/tmp"] = 4 * 1024 * 1024 -- only 4 MB free (< 12 MB headroom + book)
+mock_df_free["/dev/shm"] = 2 * 1024 * 1024
+local fallback_dir = Ephemeral._getEphemeralDir(5 * 1024 * 1024)
+assert_true(fallback_dir:find("cache/beeline%.koplugin/ephemeral") ~= nil, "Should fall back to persistent cache when RAM lacks headroom, got: " .. tostring(fallback_dir))
+mock_df_free["/tmp"] = nil
+mock_df_free["/dev/shm"] = nil
+os.execute("rm -rf /tmp/cache 2>/dev/null")
+print("✓ Space-aware ephemeral directory fallback passed")
+
+-- 11. DocumentRegistry:openDocument no ciphertext fallthrough & doc:close cleanup
+-- 11a. Failing ADEPT decryption must NOT fall through to orig_openDocument
+local fail_master = "/tmp/test_adept_fail.epub"
+local f_fm = io.open(fail_master, "wb")
+f_fm:write("PK\x03\x04dummy-adept")
+f_fm:close()
+State.trackBook(fail_master, os.time() + 86400, "Fail Book", {
+    is_adept = true,
+    format = "epub",
+    encrypted_key = "not-valid-base64-key",
+})
+mock_doc_registry._orig_calls = 0
+local fail_doc, fail_err = mock_doc_registry:openDocument(fail_master)
+assert_true(fail_doc == nil, "Failed ADEPT open must return nil document")
+assert_true(fail_err ~= nil, "Failed ADEPT open must return an error reason")
+assert_eq(mock_doc_registry._orig_calls, 0, "Failed ADEPT open must NOT fall through to orig_openDocument")
+State.untrackBook(fail_master)
+os.remove(fail_master)
+
+-- 11b. Transient DocumentRegistry:openDocument (BookInfoManager / CoverBrowser) cleans up on doc:close()
+local tran_master = "/tmp/test_adept_transient.epub"
+local tran_ephem = "/tmp/bln_ephem_transient_test.epub"
+local f_tm = io.open(tran_master, "wb"); f_tm:write("master"); f_tm:close()
+local f_te = io.open(tran_ephem, "wb"); f_te:write("decrypted-epub"); f_te:close()
+State.trackBook(tran_master, os.time() + 86400, "Transient Book", { is_adept = true, format = "epub" })
+Ephemeral._master_to_ephem[tran_master] = tran_ephem
+Ephemeral._ephem_to_master[tran_ephem] = tran_master
+Ephemeral._reader_owned[tran_ephem] = nil
+Ephemeral._ephem_refs[tran_ephem] = nil
+
+local tdoc = mock_doc_registry:openDocument(tran_master)
+assert_true(tdoc ~= nil and tdoc.file == tran_ephem, "DocumentRegistry should open decrypted ephemeral file")
+assert_eq(Ephemeral._ephem_refs[tran_ephem], 1, "Transient open should increment ephemeral ref count")
+tdoc:close()
+assert_true(tdoc.closed == true, "Original doc.close should run")
+assert_true(Ephemeral._ephem_to_master[tran_ephem] == nil, "Transient doc:close should clean up _ephem_to_master")
+assert_true(Ephemeral._master_to_ephem[tran_master] == nil, "Transient doc:close should clean up _master_to_ephem")
+local f_te_chk = io.open(tran_ephem, "rb")
+assert_true(f_te_chk == nil, "Transient ephemeral file must be deleted on doc:close")
+State.untrackBook(tran_master)
+os.remove(tran_master)
+print("✓ DocumentRegistry non-fallthrough & transient doc:close cleanup passed")
+
+-- 12. G_reader_settings volatile path sanitization
+local fake_home = "/tmp/beeline_home"
+os.execute("mkdir -p '" .. fake_home .. "' 2>/dev/null")
+reader_settings_store["home_dir"] = fake_home
+reader_settings_store["lastfile"] = "/tmp/bln_ephem_crashed_book.epub"
+reader_settings_store["lastdir"] = "/tmp"
+Ephemeral._last_master_path = nil
+Ephemeral._sanitizeReaderSettings()
+assert_true(reader_settings_store["lastfile"] == nil, "Stale ephemeral lastfile should be cleared")
+assert_eq(reader_settings_store["lastdir"], fake_home, "Volatile lastdir should reset to home_dir when no master path")
+reader_settings_store["lastdir"] = "/tmp/bln_ephem_dir"
+local restore_dir = "/tmp/beeline_master_dir"
+os.execute("mkdir -p '" .. restore_dir .. "' 2>/dev/null")
+local restore_master = restore_dir .. "/loan.epub"
+local f_rm = io.open(restore_master, "wb"); f_rm:write("epub"); f_rm:close()
+Ephemeral._last_master_path = restore_master
+reader_settings_store["lastfile"] = "/tmp/bln_ephem_crashed_book.epub"
+Ephemeral._sanitizeReaderSettings()
+assert_eq(reader_settings_store["lastfile"], restore_master, "Stale ephemeral lastfile should restore to master path when present")
+assert_eq(reader_settings_store["lastdir"], fake_home, "When util.splitFilePathName unavailable fallback uses home_dir")
+os.remove(restore_master)
+os.execute("rmdir '" .. restore_dir .. "' '" .. fake_home .. "' 2>/dev/null")
+print("✓ G_reader_settings volatile path sanitization passed")
 
 print("=== ALL EPHEMERAL ADEPT TESTS PASSED ===")

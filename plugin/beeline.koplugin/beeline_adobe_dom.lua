@@ -45,7 +45,7 @@ function dom.firstElement(node, ns_map, local_name, namespace)
     for _, child in ipairs(node._children or {}) do
         if child._type == "ELEMENT" then
             local child_ns_map = dom.nsMapFor(child, ns_map)
-            local child_ns, child_name = dom.resolveNodeName(child, ns_map)
+            local child_ns, child_name = dom.resolveNodeName(child, child_ns_map)
             if child_name == local_name and (namespace == nil or child_ns == namespace) then
                 return child, child_ns_map
             end

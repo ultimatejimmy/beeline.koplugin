@@ -27,20 +27,45 @@ local ADEPT = adobehash.ADEPT
 
 local function moveOrCopy(src, dst)
     if os.rename(src, dst) then return true end
-    local inF = io.open(src, "rb")
-    if not inF then return false, "Cannot open source file" end
-    local outF = io.open(dst, "wb")
+    local inF, inErr = io.open(src, "rb")
+    if not inF then return false, "Cannot open source file: " .. tostring(inErr) end
+    local tmpDst = dst .. ".tmp"
+    local outF, outErr = io.open(tmpDst, "wb")
     if not outF then
         inF:close()
-        return false, "Cannot open dest file"
+        return false, "Cannot open dest file: " .. tostring(outErr)
     end
+    local writeErr = nil
     while true do
         local chunk = inF:read(65536)
         if not chunk then break end
-        outF:write(chunk)
+        local ok, err = outF:write(chunk)
+        if not ok then
+            writeErr = err or "write failed"
+            break
+        end
     end
     inF:close()
-    outF:close()
+    if not writeErr and outF.flush then
+        local ok, err = outF:flush()
+        if ok == false then
+            writeErr = err or "flush failed"
+        end
+    end
+    local closeOk, closeErr = outF:close()
+    if not writeErr and closeOk == false then
+        writeErr = closeErr or "close failed"
+    end
+    if writeErr then
+        pcall(os.remove, tmpDst)
+        return false, writeErr
+    end
+    os.remove(dst)
+    local renOk, renErr = os.rename(tmpDst, dst)
+    if not renOk then
+        pcall(os.remove, tmpDst)
+        return false, "Cannot rename dest file: " .. tostring(renErr)
+    end
     pcall(os.remove, src)
     return true
 end
@@ -184,7 +209,7 @@ local function collectNotifyUrls(node, nsMap, urls)
     for _, child in ipairs(node._children or {}) do
         if child._type == "ELEMENT" then
             local childNsMap = dom.nsMapFor(child, nsMap)
-            local childNs, childName = dom.resolveNodeName(child, nsMap)
+            local childNs, childName = dom.resolveNodeName(child, childNsMap)
             if childNs == ADEPT and childName == "notify" then
                 local notifyUrl = dom.childText(child, childNsMap, "notifyURL", ADEPT)
                 if notifyUrl and notifyUrl ~= "" then

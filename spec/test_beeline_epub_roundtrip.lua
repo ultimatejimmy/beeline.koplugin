@@ -33,6 +33,7 @@ package.loaded["socketutil"] = {
 }
 
 local ko_cpaths = {
+    squash_root .. "/usr/lib/koreader/?.so",
     squash_root .. "/usr/lib/koreader/common/?.so",
     squash_root .. "/usr/lib/koreader/libs/?.so",
 }
@@ -303,6 +304,21 @@ assert_true(entries["META-INF/container.xml"] ~= nil, "META-INF/container.xml mu
 assert_eq(r:extractToMemory("OEBPS/Text/chapter 1.xhtml"), chapter_plain, "Decrypted+inflated chapter must match original byte-for-byte")
 assert_eq(r:extractToMemory("OEBPS/Images/cover.jpg"), cover_plain, "Decrypted Compression=0 cover must match original byte-for-byte")
 r:close()
+
+-- Verify crengine (libs/libkoreader-cre) opens and renders the single-pass streamed EPUB
+local ok_cre, cre = pcall(require, "libs/libkoreader-cre")
+if ok_cre and cre then
+    cre.initCache(work_dir .. "/cre_cache", 16 * 1024 * 1024, true, 1)
+    cre.initHyphDict(squash_root .. "/usr/lib/koreader/data/hyph/")
+    cre.registerFont(squash_root .. "/usr/lib/koreader/fonts/noto/NotoSerif-Regular.ttf")
+    cre.regularizeRegisteredFontsWeights(false)
+    cre.setAsPreferredFontWithBias("Noto Serif", 1)
+    local doc = cre.newDocView(600, 800, 1)
+    assert_true(doc:loadDocument(decrypted_epub, false) == true, "crengine must load streamed decrypted EPUB")
+    doc:renderDocument()
+    assert_true(doc:getPages() >= 1, "crengine must render at least 1 page from streamed decrypted EPUB")
+    print("✓ Real crengine loadDocument & renderDocument passed")
+end
 print("✓ Real ZIP decryptAdobeEpub roundtrip passed")
 
 -- 4. epub.extractCoverImage (Compression Method=0 + no double PKCS7 padding stripping)

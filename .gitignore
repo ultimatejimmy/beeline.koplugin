@@ -5,6 +5,10 @@ worker/.wrangler/
 # Dependencies
 node_modules/
 
+# Python bytecode
+__pycache__/
+*.py[cod]
+
 # OS / Editor files
 .DS_Store
 Thumbs.db

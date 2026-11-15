@@ -71,7 +71,13 @@ local function moveOrCopy(src, dst)
 end
 
 local function uniqueCachePath(prefix, suffix)
-    local cacheDir = DataStorage:getDataDir() .. "/cache/beeline.koplugin"
+    local base = (DataStorage and type(DataStorage.getFullDataDir) == "function" and DataStorage:getFullDataDir())
+        or (DataStorage and DataStorage.getDataDir and DataStorage:getDataDir())
+        or "/tmp"
+    if base == "." and lfs and type(lfs.currentdir) == "function" then
+        base = lfs.currentdir() or base
+    end
+    local cacheDir = base .. "/cache/beeline.koplugin"
     if lfs.attributes(cacheDir, "mode") ~= "directory" then
         lfs.mkdir(cacheDir)
     end
@@ -425,7 +431,11 @@ function fulfillment.downloadBook(srcUrl, outputPath, progress_fn)
         return nil, sinkErr
     end
 
-    local ffiutil_ok, ffiutil = pcall(require, "ffi/ffiutil")
+    local ffiutil_ok, ffiutil = pcall(require, "ffi/util")
+    if not (ffiutil_ok and ffiutil and ffiutil.df) then
+        ffiutil = package.loaded["ffi/ffiutil"]
+        ffiutil_ok = ffiutil ~= nil
+    end
     local total_bytes = 0
     local last_report = 0
     local last_storage_check = 0
@@ -609,17 +619,20 @@ function fulfillment.process(acsmPath, outputPath, creds, deviceUUID, fingerprin
     end
 
     logger.info("[ACSM] fulfillment.process: doing operator auth...")
+    if progress_fn then pcall(progress_fn, "auth") end
     local ok, err = fulfillment.operatorAuth(operatorURL, userUUID, userCert, creds.licenseCert, authCert)
     if not ok then
         return nil, err
     end
     logger.info("[ACSM] fulfillment.process: operator auth done, init license service...")
+    if progress_fn then pcall(progress_fn, "license") end
 
     ok, err = fulfillment.initLicenseService(activationURL, operatorURL, userUUID, pkcs12Key)
     if not ok then
         return nil, err
     end
     logger.info("[ACSM] fulfillment.process: license service initialized, fulfilling...")
+    if progress_fn then pcall(progress_fn, "fulfill") end
 
     local result
     result, err = fulfillment.fulfill(acsmPath, userUUID, deviceUUID, fingerprint, pkcs12Key)
@@ -687,7 +700,11 @@ function fulfillment.process(acsmPath, outputPath, creds, deviceUUID, fingerprin
         f_tmp:close()
     end
 
-    local ffiutil_ok, ffiutil = pcall(require, "ffi/ffiutil")
+    local ffiutil_ok, ffiutil = pcall(require, "ffi/util")
+    if not (ffiutil_ok and ffiutil and ffiutil.df) then
+        ffiutil = package.loaded["ffi/ffiutil"]
+        ffiutil_ok = ffiutil ~= nil
+    end
     if ffiutil_ok and ffiutil and ffiutil.df and tmp_size > 0 then
         local ok_df, total_disk, free_bytes = pcall(ffiutil.df, outputPath)
         if ok_df and free_bytes then
@@ -748,6 +765,7 @@ function fulfillment.process(acsmPath, outputPath, creds, deviceUUID, fingerprin
         }
 
         if result.notifyURLs and #result.notifyURLs > 0 then
+            if progress_fn then pcall(progress_fn, "finalize") end
             for _, notifyURL in ipairs(result.notifyURLs) do
                 fulfillment.notify(notifyURL, userUUID, deviceUUID, pkcs12Key)
             end
@@ -769,10 +787,10 @@ function fulfillment.process(acsmPath, outputPath, creds, deviceUUID, fingerprin
         if isPdf then
             logger.info("[ACSM] fulfillment.process: decrypting PDF...")
             local pdf = require("beeline_adobe_pdf")
-            return pdf.decryptAdobePdf(tmpFile, outputPath, nil, creds.licenseKey, result.encryptedKey, progress_cb)
+            return pdf.decryptAdobePdf(tmpFile, outputPath, nil, creds.licenseKey, result.encryptedKey, progress_fn)
         else
             logger.info("[ACSM] fulfillment.process: decrypting EPUB...")
-            return epub.decryptAdobeEpub(tmpFile, outputPath, bookKey)
+            return epub.decryptAdobeEpub(tmpFile, outputPath, bookKey, progress_fn)
         end
     end)
 
@@ -788,6 +806,7 @@ function fulfillment.process(acsmPath, outputPath, creds, deviceUUID, fingerprin
     logger.info("[ACSM] fulfillment.process: book decrypted to", outputPath)
 
     if result.notifyURLs and #result.notifyURLs > 0 then
+        if progress_fn then pcall(progress_fn, "finalize") end
         for _, notifyURL in ipairs(result.notifyURLs) do
             fulfillment.notify(notifyURL, userUUID, deviceUUID, pkcs12Key)
         end

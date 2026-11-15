@@ -129,7 +129,34 @@ assert(mock_shown[1].dimen ~= nil, "Floating pill must calculate dimension")
 assert(mock_shown[1][1] ~= nil, "Centered layout group must be present")
 assert(mock_shown[1][1].align == "center", "Layout group must be center-aligned")
 assert(mock_shown[1].dimen.w == 1080, "Full screen container width for centering")
-print("PASS: showDownloadToast & Beeline floating pill verification")
+-- Verify vertical centering (sh = 1440, dummy card h = 60 -> toast_y = (1440 - 60) / 2 = 690)
+assert(mock_shown[1][1][1] ~= nil and mock_shown[1][1][1].height == 690,
+    "Toast must be vertically centered (expected 690, got " .. tostring(mock_shown[1][1][1] and mock_shown[1][1][1].height) .. ")")
+print("PASS: showDownloadToast & Beeline vertically-centered pill verification")
+
+-- 1b. Test showProgressToast & updateProgress (Loading bar)
+assert(type(UI.showProgressToast) == "function", "showProgressToast must be exported")
+local prog_toast = UI.showProgressToast("Fulfilling Loan", "Sunrise on the Reaping", "download", 0.05)
+assert(prog_toast.title == "Fulfilling Loan", "Progress toast title must match")
+assert(prog_toast.text == "Sunrise on the Reaping", "Progress toast text must match")
+assert(prog_toast.dismissable == false, "Progress toast must not be dismissable")
+assert(prog_toast.timeout == 0, "Progress toast must not auto-timeout")
+assert(prog_toast.progress == 0.05, "Initial progress must be 0.05")
+assert(prog_toast[1][1].height == 690, "Progress toast must be vertically centered")
+-- Verify onTapDismiss does not close progress toast
+prog_toast:onTapDismiss()
+assert(prog_toast.progress == 0.05, "Non-dismissable progress toast ignores tap")
+-- Verify updateProgress clamping and throttling
+prog_toast:updateProgress(0.06) -- < 2% delta, should store progress without forcing repaint
+assert(prog_toast.progress == 0.06, "Progress should update to 0.06")
+prog_toast:updateProgress(0.55)
+assert(prog_toast.progress == 0.55, "Progress should update to 0.55")
+prog_toast:updateProgress(1.5)
+assert(prog_toast.progress == 1.0, "Progress must clamp to 1.0")
+prog_toast:updateProgress(-0.5)
+assert(prog_toast.progress == 0.0, "Progress must clamp to 0.0")
+prog_toast:close()
+print("PASS: showProgressToast & loading bar verification")
 
 -- Test warning/expired toast
 local exp_toast = UI.showToast("Gone Girl\nToken expired.", 4, "info", "Loan Token Expired")

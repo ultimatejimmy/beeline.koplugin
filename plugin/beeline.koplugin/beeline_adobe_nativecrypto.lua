@@ -429,18 +429,30 @@ function nativecrypto.aes_cbc_decryptor(key, iv, no_padding)
     local decryptor = {}
 
     --- Decrypt a chunk of data.
+    -- Accepts either (chunk_str, sink) or (c_ptr, chunk_len, sink).
     -- If sink is provided, calls sink(ptr, len) with the output buffer.
     -- If no sink, returns (ptr, len) directly.
-    function decryptor:update(chunk, sink)
+    function decryptor:update(chunk, len_or_sink, maybe_sink)
         if finalized then
             return nil, "decryptor already finalized"
         end
-        local needed = #chunk + 32
+        local chunk_len, sink
+        if type(len_or_sink) == "number" then
+            chunk_len = len_or_sink
+            sink = maybe_sink
+        else
+            chunk_len = #chunk
+            sink = len_or_sink
+        end
+        if chunk_len <= 0 then
+            return out, 0
+        end
+        local needed = chunk_len + 32
         if needed > out_cap then
             out = ffi.new("unsigned char[?]", needed)
             out_cap = needed
         end
-        if libcrypto.EVP_DecryptUpdate(ctx, out, outl, chunk, #chunk) ~= 1 then
+        if libcrypto.EVP_DecryptUpdate(ctx, out, outl, chunk, chunk_len) ~= 1 then
             return nil, "EVP_DecryptUpdate failed"
         end
         if sink and outl[0] > 0 then

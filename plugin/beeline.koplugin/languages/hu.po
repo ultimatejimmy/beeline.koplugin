@@ -153,6 +153,10 @@ msgstr "ByteBooks jelszó"
 msgid "ByteBooks activation successful!"
 msgstr "A ByteBooks aktiválása sikeres!"
 
+# en-hash: 7c83f6b6e3255aa7ab7d2240b9e4f737
+msgid "ByteBooks allows the same .acsm file to be read on multiple devices."
+msgstr ""
+
 # en-hash: ea4788705e6873b424c65e91c2846b19
 msgid "Cancel"
 msgstr "Mégse"
@@ -237,6 +241,10 @@ msgstr "ByteBooks-fiók engedélye visszavonva"
 msgid "Decline"
 msgstr "Elutasítás"
 
+# en-hash: 4f5be46ff93ccc626e77648e002df6ef
+msgid "Decrypting book…"
+msgstr ""
+
 # en-hash: 0a4b33cc1fc4c21a5e073a500a9d2f92
 msgid "Decryption Failed"
 msgstr "A visszafejtés sikertelen"
@@ -293,9 +301,9 @@ msgstr "Fájl érkezett!"
 msgid "Folder"
 msgstr "Mappa"
 
-# en-hash: 3209c3b4980c680ddc7fe5d8550f9781
-msgid "Fulfilling %s..."
-msgstr "%s teljesítése..."
+# en-hash: d793530575b8b7f3907f6c0fe1e877ef
+msgid "Fulfilling Loan"
+msgstr ""
 
 # en-hash: a1b9b944ced1ef233b011bb55fc6565d
 msgid "Fulfillment Failed"
@@ -337,6 +345,10 @@ msgstr "A kölcsönzési token lejárt"
 msgid "Loan token received. Open Beeline in Tools menu to fulfill."
 msgstr "Kölcsönzési token érkezett. A teljesítéshez nyissa meg a Beeline-t az Eszközök menüben."
 
+# en-hash: 4eb9416512f9df832bdb97653a207853
+msgid "Make sure you have registered or migrated your Adobe ID at https://dtsbytebooks.com/transition-help using the exact same lowercase email."
+msgstr ""
+
 # en-hash: 5148905edb46ca87df979cbb369c403d
 msgid "New Folder"
 msgstr "Új mappa"
@@ -372,6 +384,10 @@ msgstr "Mappa megnyitása"
 # en-hash: 7241976c15264867d2a6b1bf7e7b8211
 msgid "Open Now"
 msgstr "Megnyitás most"
+
+# en-hash: 5a047bb1ebacf61135d5fd25a07c6c6b
+msgid "Opening Book"
+msgstr ""
 
 # en-hash: b8065ad2628f1f82f3167af0947b3e43
 msgid "Page %d of %d"
@@ -440,6 +456,10 @@ msgstr "Bejelentkezés"
 # en-hash: 895ad58a520b0489e20f4fda56532e97
 msgid "Sign in to ByteBooks"
 msgstr "Bejelentkezés a ByteBooksba"
+
+# en-hash: b6679baf82534b5da91a135431c6f90c
+msgid "Sign in with your ByteBooks account (https://dtsbytebooks.com). Legacy Adobe IDs must be migrated or registered at dtsbytebooks.com first."
+msgstr ""
 
 # en-hash: f8f280b167bea895f2b977d60fcad6a6
 msgid "Test & Save"

@@ -35,7 +35,8 @@ local _ephem_refs = {}
 local _reader_owned = {}
 local _hooks_installed = false
 
-local EPHEMERAL_RAM_HEADROOM_BYTES = 12 * 1024 * 1024 -- keep >= 12 MB free on /tmp tmpfs
+local EPHEMERAL_RAM_HEADROOM_BYTES = 16 * 1024 * 1024 -- keep >= 16 MB free on /tmp tmpfs
+local MAX_RAM_EPHEMERAL_BYTES = 16 * 1024 * 1024 -- never place large books (>16 MB) on RAM tmpfs
 
 local function shellQuote(s)
     return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
@@ -75,7 +76,26 @@ end
 
 local function getCandidateDirs()
     local ok_ds, DS = pcall(require, "datastorage")
-    local base = (ok_ds and DS and DS.getDataDir and DS:getDataDir()) or "/tmp"
+    local base = nil
+    if ok_ds and DS then
+        if type(DS.getFullDataDir) == "function" then
+            local ok_f, full = pcall(DS.getFullDataDir, DS)
+            if ok_f and type(full) == "string" and full ~= "" and full ~= "." then
+                base = full
+            end
+        end
+        if not base and type(DS.getDataDir) == "function" then
+            base = DS:getDataDir()
+        end
+    end
+    if not base or base == "" then
+        base = "/tmp"
+    elseif base == "." and lfs and type(lfs.currentdir) == "function" then
+        local cwd = lfs.currentdir()
+        if type(cwd) == "string" and cwd ~= "" then
+            base = cwd
+        end
+    end
     local cache_dir = base .. "/cache/beeline.koplugin/ephemeral"
     return {
         ram = { "/tmp", "/dev/shm" },
@@ -84,36 +104,73 @@ local function getCandidateDirs()
     }
 end
 
---- Resolves the directory for volatile ephemeral files (prefers /tmp ramdisk when space allows)
-local function getEphemeralDir(required_bytes)
-    local dirs = getCandidateDirs()
-    local ok_fu, ffiutil = pcall(require, "ffi/ffiutil")
-    local has_df = ok_fu and ffiutil and type(ffiutil.df) == "function"
-    local needed = (tonumber(required_bytes) or 0) + EPHEMERAL_RAM_HEADROOM_BYTES
+local function getFfiUtil()
+    local ok_fu, ffiutil = pcall(require, "ffi/util")
+    if ok_fu and ffiutil and type(ffiutil.df) == "function" then
+        return ffiutil
+    end
+    local legacy = package.loaded["ffi/ffiutil"]
+    if legacy and type(legacy.df) == "function" then
+        return legacy
+    end
+    return nil
+end
 
-    for _, dir in ipairs(dirs.ram) do
-        if lfs.attributes(dir, "mode") == "directory" then
-            if not has_df then
-                return dir
-            end
-            local ok_df, _, free_bytes = pcall(ffiutil.df, dir)
-            if ok_df and type(free_bytes) == "number" then
-                if free_bytes >= needed then
+local function isRamPath(path, cache_dir)
+    if type(path) ~= "string" then return false end
+    if cache_dir and path:sub(1, #cache_dir) == cache_dir then
+        return false
+    end
+    return path:match("^/tmp/") ~= nil or path:match("^/dev/shm/") ~= nil
+end
+
+local function ensureCacheDir(cache_dir)
+    if lfs.attributes(cache_dir, "mode") ~= "directory" then
+        pcall(os.execute, "mkdir -p " .. shellQuote(cache_dir) .. " 2>/dev/null")
+    end
+    return lfs.attributes(cache_dir, "mode") == "directory"
+end
+
+--- Resolves the directory for volatile ephemeral files (prefers /tmp ramdisk when space allows)
+local function getEphemeralDir(required_bytes, master_path)
+    local dirs = getCandidateDirs()
+    local req = tonumber(required_bytes) or 0
+    local ffiutil = getFfiUtil()
+    local has_df = ffiutil ~= nil
+    local needed = req + EPHEMERAL_RAM_HEADROOM_BYTES
+
+    -- Large books (e.g. picture books) must skip RAM tmpfs so they don't trigger ENOSPC/short write
+    -- or starve KOReader's image renderer of RAM.
+    if req <= MAX_RAM_EPHEMERAL_BYTES then
+        for _, dir in ipairs(dirs.ram) do
+            if lfs.attributes(dir, "mode") == "directory" then
+                if has_df then
+                    local ok_df, _, free_bytes = pcall(ffiutil.df, dir)
+                    if ok_df and type(free_bytes) == "number" and free_bytes >= needed then
+                        return dir
+                    end
+                elseif req == 0 then
                     return dir
                 end
-            else
-                return dir
             end
         end
     end
 
-    -- Fallback to KOReader cache directory if RAM tmpfs is unavailable or lacks headroom
+    -- Fallback to KOReader cache directory if RAM tmpfs is unavailable, lacks headroom, or book is large
     local cache_dir = dirs.cache
-    if lfs.attributes(cache_dir, "mode") ~= "directory" then
-        pcall(os.execute, "mkdir -p " .. shellQuote(cache_dir) .. " 2>/dev/null")
-    end
-    if lfs.attributes(cache_dir, "mode") == "directory" then
+    if ensureCacheDir(cache_dir) then
         return cache_dir
+    end
+
+    -- Secondary persistent fallback alongside the master book if cache_dir could not be created
+    if type(master_path) == "string" then
+        local master_dir = master_path:match("^(.*)[/\\][^/\\]+$")
+        if master_dir and master_dir ~= "" and not isRamPath(master_dir .. "/", cache_dir) then
+            local sibling_cache = master_dir .. "/.beeline_ephemeral"
+            if ensureCacheDir(sibling_cache) then
+                return sibling_cache
+            end
+        end
     end
 
     for _, dir in ipairs(dirs.extra) do
@@ -125,8 +182,8 @@ local function getEphemeralDir(required_bytes)
 end
 
 --- Generates a unique ephemeral file path
-local function generateEphemeralPath(master_path, required_bytes)
-    local dir = getEphemeralDir(required_bytes)
+local function generateEphemeralPath(master_path, required_bytes, force_dir)
+    local dir = force_dir or getEphemeralDir(required_bytes, master_path)
     local filename = master_path and (master_path:match("([^/\\]+)$") or "book.epub") or "book.epub"
     local base, ext = filename:match("^(.+)(%..+)$")
     base = base or filename
@@ -378,56 +435,111 @@ function M.prepareSession(master_path)
         end
     end
 
+    -- Reclaim any stale orphaned temp files before allocating space for a new session
+    M.cleanupAllOrphans()
+
     local master_attr = lfs.attributes(master_path)
     local master_size = (master_attr and master_attr.size) or 0
     local required_bytes = master_size > 0 and math.floor(master_size * 2.5) or 0
     local temp_path = generateEphemeralPath(master_path, required_bytes)
     logger.info("beeline_ephemeral: preparing session " .. tostring(master_path) .. " -> " .. tostring(temp_path))
 
+    local book_title = (tracked and tracked.title and tracked.title ~= "" and tracked.title)
+        or (master_path:match("([^/\\]+)$") or master_path):gsub("%.[^%.]+$", "")
+
+    local prog_toast = nil
     local status_msg = nil
+    local ok_bui, BeelineUI = pcall(require, plugin_path .. "beeline_ui")
+    if not ok_bui or not BeelineUI then
+        ok_bui, BeelineUI = pcall(require, "beeline_ui")
+    end
     local ok_uim, UIManager = pcall(require, "ui/uimanager")
-    local ok_im, InfoMessage = pcall(require, "ui/widget/infomessage")
-    if ok_uim and ok_im and UIManager and InfoMessage and type(UIManager.show) == "function" then
+    if ok_bui and BeelineUI and type(BeelineUI.showProgressToast) == "function" then
         pcall(function()
-            status_msg = InfoMessage:new{ text = _("Decrypting book…"), timeout = 0 }
-            UIManager:show(status_msg)
-            if type(UIManager.forceRePaint) == "function" then
-                UIManager:forceRePaint()
+            prog_toast = BeelineUI.showProgressToast(_("Opening Book"), book_title, "bee", 0.05)
+        end)
+    else
+        local ok_im, InfoMessage = pcall(require, "ui/widget/infomessage")
+        if ok_uim and ok_im and UIManager and InfoMessage and type(UIManager.show) == "function" then
+            pcall(function()
+                status_msg = InfoMessage:new{ text = _("Decrypting book…"), timeout = 0 }
+                UIManager:show(status_msg)
+                if type(UIManager.forceRePaint) == "function" then
+                    UIManager:forceRePaint()
+                end
+            end)
+        end
+    end
+
+    local function onDecryptProgress(stage_or_frac, maybe_frac)
+        if not prog_toast then return end
+        local frac = (type(maybe_frac) == "number" and maybe_frac)
+            or (type(stage_or_frac) == "number" and stage_or_frac)
+        if frac then
+            prog_toast:updateProgress(frac)
+        end
+    end
+
+    local function runDecryption(target_path)
+        return pcall(function()
+            if isPdf then
+                local pdf = require("beeline_adobe_pdf")
+                local encKey = tracked and tracked.encrypted_key
+                return pdf.decryptAdobePdf(master_path, target_path, nil, activation.creds.licenseKey, encKey, onDecryptProgress)
+            else
+                -- 1. Resolve book key
+                local bookKey = nil
+                if has_cached_key then
+                    local util = require("beeline_adobe_util")
+                    bookKey = util.hex.decode(tracked.book_key_hex)
+                elseif tracked and tracked.encrypted_key then
+                    local fulfillment = require("beeline_adobe_fulfillment")
+                    bookKey = fulfillment.decryptBookKey(tracked.encrypted_key, activation.creds.licenseKey)
+                else
+                    -- Extract from rights.xml
+                    local encKey = epub.extractEncryptedKeyFromEpub(master_path)
+                    if encKey then
+                        local fulfillment = require("beeline_adobe_fulfillment")
+                        bookKey = fulfillment.decryptBookKey(encKey, activation.creds.licenseKey)
+                    end
+                end
+
+                if not bookKey then
+                    return nil, "Could not derive book decryption key from license"
+                end
+
+                return epub.decryptAdobeEpub(master_path, target_path, bookKey, onDecryptProgress)
             end
         end)
     end
 
-    local ok_dec, dec_res, dec_err = pcall(function()
-        if isPdf then
-            local pdf = require("beeline_adobe_pdf")
-            local encKey = tracked and tracked.encrypted_key
-            return pdf.decryptAdobePdf(master_path, temp_path, nil, activation.creds.licenseKey, encKey)
-        else
-            -- 1. Resolve book key
-            local bookKey = nil
-            if has_cached_key then
-                local util = require("beeline_adobe_util")
-                bookKey = util.hex.decode(tracked.book_key_hex)
-            elseif tracked and tracked.encrypted_key then
-                local fulfillment = require("beeline_adobe_fulfillment")
-                bookKey = fulfillment.decryptBookKey(tracked.encrypted_key, activation.creds.licenseKey)
-            else
-                -- Extract from rights.xml
-                local encKey = epub.extractEncryptedKeyFromEpub(master_path)
-                if encKey then
-                    local fulfillment = require("beeline_adobe_fulfillment")
-                    bookKey = fulfillment.decryptBookKey(encKey, activation.creds.licenseKey)
-                end
-            end
+    local ok_dec, dec_res, dec_err = runDecryption(temp_path)
 
-            if not bookKey then
-                return nil, "Could not derive book decryption key from license"
+    -- If writing to RAM tmpfs failed (e.g., ENOSPC / short write), retry once in persistent cache
+    local dirs = getCandidateDirs()
+    if (not ok_dec or not dec_res) and isRamPath(temp_path, dirs.cache) then
+        local first_err = not ok_dec and tostring(dec_res) or tostring(dec_err or "decryption failed")
+        secureRemove(temp_path)
+        if ensureCacheDir(dirs.cache) then
+            local cache_path = generateEphemeralPath(master_path, required_bytes, dirs.cache)
+            logger.warn("beeline_ephemeral: RAM session prep failed (" .. first_err .. "); retrying in cache: " .. tostring(cache_path))
+            temp_path = cache_path
+            if prog_toast then
+                pcall(function() prog_toast:updateProgress(0.05) end)
             end
-
-            return epub.decryptAdobeEpub(master_path, temp_path, bookKey)
+            ok_dec, dec_res, dec_err = runDecryption(temp_path)
         end
-    end)
+    end
 
+    if prog_toast then
+        pcall(function()
+            if ok_dec and dec_res then
+                prog_toast:updateProgress(1.0)
+            end
+            prog_toast:close()
+        end)
+        prog_toast = nil
+    end
     if status_msg and ok_uim and UIManager and type(UIManager.close) == "function" then
         pcall(function() UIManager:close(status_msg) end)
     end

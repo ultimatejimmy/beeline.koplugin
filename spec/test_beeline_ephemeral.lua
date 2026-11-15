@@ -103,7 +103,6 @@ local mock_ffi_util = {
 }
 package.loaded["ffi/util"] = package.loaded["ffi/util"] or mock_ffi_util
 package.loaded["ffi.util"] = package.loaded["ffi.util"] or mock_ffi_util
-package.loaded["ffi/ffiutil"] = package.loaded["ffi/ffiutil"] or mock_ffi_util
 package.loaded["ffi/posix_h"] = package.loaded["ffi/posix_h"] or {}
 package.loaded["ffi.posix_h"] = package.loaded["ffi.posix_h"] or {}
 package.loaded["ffi/archiver"] = package.loaded["ffi/archiver"] or {}
@@ -454,5 +453,59 @@ assert_eq(reader_settings_store["lastdir"], fake_home, "When util.splitFilePathN
 os.remove(restore_master)
 os.execute("rmdir '" .. restore_dir .. "' '" .. fake_home .. "' 2>/dev/null")
 print("✓ G_reader_settings volatile path sanitization passed")
+
+-- 13. Large-book & short-write fallback tests
+-- 13a. Large book (e.g. 91.9 MB) bypasses /tmp even when /tmp reports ample free space
+mock_df_free["/tmp"] = 512 * 1024 * 1024
+mock_df_free["/dev/shm"] = 512 * 1024 * 1024
+local large_dir = Ephemeral._getEphemeralDir(92 * 1024 * 1024)
+assert_true(large_dir:find("cache/beeline%.koplugin/ephemeral") ~= nil, "Large books (>16 MB) must route to persistent cache, got: " .. tostring(large_dir))
+mock_df_free["/tmp"] = nil
+mock_df_free["/dev/shm"] = nil
+
+-- 13b. When ffi/util.df is unavailable and required_bytes > 0, fall back to cache instead of /tmp
+local orig_df = mock_ffi_util.df
+mock_ffi_util.df = nil
+local no_df_dir = Ephemeral._getEphemeralDir(5 * 1024 * 1024)
+assert_true(no_df_dir:find("cache/beeline%.koplugin/ephemeral") ~= nil, "Unknown free space with required_bytes > 0 must fall back to cache, got: " .. tostring(no_df_dir))
+mock_ffi_util.df = orig_df
+
+-- 13c. If RAM decryption fails (e.g. 'short write'), prepareSession retries in cache and succeeds
+local retry_master = "/tmp/test_short_write_retry.epub"
+local f_rw = io.open(retry_master, "wb")
+f_rw:write("PK\x03\x04dummy-adept-retry")
+f_rw:close()
+State.trackBook(retry_master, os.time() + 86400, "Retry Book", {
+    is_adept = true,
+    format = "epub",
+    book_key_hex = "00112233445566778899aabbccddeeff",
+})
+local epub_mod = require("beeline_adobe_epub")
+local orig_decrypt = epub_mod.decryptAdobeEpub
+local attempted_paths = {}
+epub_mod.decryptAdobeEpub = function(_, out_path, _)
+    table.insert(attempted_paths, out_path)
+    if not out_path:find("cache/beeline%.koplugin/ephemeral") then
+        return nil, "short write"
+    end
+    local f_out = io.open(out_path, "wb")
+    assert_true(f_out ~= nil, "Failed to write fallback cache output: " .. tostring(out_path))
+    -- Minimal valid ZIP local file header + EOCD so isValidEpubArchive accepts it if checked
+    f_out:write("PK\x03\x04dummy-decrypted-epub")
+    f_out:close()
+    return { outputPath = out_path, decryptedEntries = 1 }
+end
+mock_df_free["/tmp"] = 64 * 1024 * 1024
+local retry_ephem, retry_err = Ephemeral.prepareSession(retry_master)
+epub_mod.decryptAdobeEpub = orig_decrypt
+mock_df_free["/tmp"] = nil
+assert_true(retry_ephem ~= nil, "prepareSession should recover from RAM short write via cache fallback, err: " .. tostring(retry_err))
+assert_true(retry_ephem:find("cache/beeline%.koplugin/ephemeral") ~= nil, "Recovered session should reside in cache dir, got: " .. tostring(retry_ephem))
+assert_eq(#attempted_paths, 2, "Should attempt RAM path first then retry once in cache")
+Ephemeral.cleanupSession(retry_ephem)
+State.untrackBook(retry_master)
+os.remove(retry_master)
+os.execute("rm -rf /tmp/cache 2>/dev/null")
+print("✓ Large-book cache routing & short-write fallback passed")
 
 print("=== ALL EPHEMERAL ADEPT TESTS PASSED ===")

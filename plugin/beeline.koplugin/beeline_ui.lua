@@ -198,12 +198,16 @@ local BeelineToastWidget = InputContainer:extend{
     icon_name = "bee",
     timeout = 3,
     dismissable = true,
+    progress = nil,
 }
 
-function BeelineToastWidget:init()
+function BeelineToastWidget:_buildCard()
     local sw = Screen:getWidth()
     local sh = Screen:getHeight()
     local max_toast_w = math.min(sw - sc(32), sc(460))
+    local has_progress = (self.progress ~= nil)
+    local card_w = has_progress and max_toast_w or nil
+    local text_w = max_toast_w - sc(72)
 
     local icon_file = getAssetPath("bee.png")
     if self.icon_name == "download" then
@@ -229,13 +233,40 @@ function BeelineToastWidget:init()
 
     local text_items = {}
     if self.title and self.title ~= "" then
-        table.insert(text_items, TextWidget:new{
-            text = self.title,
-            face = Font:getFace("cfont", theme.face_label_size or 16),
-            bold = true,
-            fgcolor = Blitbuffer.COLOR_BLACK,
-            max_width = max_toast_w - sc(72),
-        })
+        if has_progress then
+            local pct = math.floor(math.max(0, math.min(1, self.progress)) * 100 + 0.5)
+            local pct_str = string.format("%d%%", pct)
+            local pct_widget = TextWidget:new{
+                text = pct_str,
+                face = Font:getFace("cfont", theme.face_label_size or 16),
+                bold = true,
+                fgcolor = Blitbuffer.COLOR_BLACK,
+            }
+            local pct_w = (pct_widget.getSize and pct_widget:getSize().w) or sc(44)
+            local title_widget = TextWidget:new{
+                text = self.title,
+                face = Font:getFace("cfont", theme.face_label_size or 16),
+                bold = true,
+                fgcolor = Blitbuffer.COLOR_BLACK,
+                max_width = math.max(sc(60), text_w - pct_w - sc(8)),
+            }
+            local title_w = (title_widget.getSize and title_widget:getSize().w) or sc(120)
+            local gap_w = math.max(sc(8), text_w - title_w - pct_w)
+            table.insert(text_items, HorizontalGroup:new{
+                align = "center",
+                title_widget,
+                HorizontalSpan:new{ width = gap_w },
+                pct_widget,
+            })
+        else
+            table.insert(text_items, TextWidget:new{
+                text = self.title,
+                face = Font:getFace("cfont", theme.face_label_size or 16),
+                bold = true,
+                fgcolor = Blitbuffer.COLOR_BLACK,
+                max_width = text_w,
+            })
+        end
         table.insert(text_items, VerticalSpan:new{ width = sc(3) })
     end
 
@@ -243,7 +274,7 @@ function BeelineToastWidget:init()
         text = self.text or "",
         face = Font:getFace("cfont", (self.title and self.title ~= "") and ((theme.face_label_size or 16) - 2) or (theme.face_label_size or 16)),
         fgcolor = Blitbuffer.COLOR_BLACK,
-        width = max_toast_w - sc(72),
+        width = text_w,
         alignment = "left",
     })
 
@@ -257,28 +288,80 @@ function BeelineToastWidget:init()
         },
     }
 
+    local card_body = row
+    if has_progress then
+        local clamped = math.max(0, math.min(1, self.progress))
+        local bar_outer_w = max_toast_w - sc(36)
+        local bar_inner_w = math.max(sc(40), bar_outer_w - sc(2))
+        local bar_h = sc(10)
+        local fill_w = math.floor(bar_inner_w * clamped + 0.5)
+        local rem_w = bar_inner_w - fill_w
+
+        local bar_segments = {}
+        if fill_w > 0 then
+            table.insert(bar_segments, LineWidget:new{
+                dimen = Geom:new{ w = fill_w, h = bar_h },
+                background = Blitbuffer.COLOR_BLACK,
+            })
+        end
+        if rem_w > 0 then
+            table.insert(bar_segments, LineWidget:new{
+                dimen = Geom:new{ w = rem_w, h = bar_h },
+                background = Blitbuffer.COLOR_WHITE,
+            })
+        end
+
+        local bar_frame = FrameContainer:new{
+            padding = 0,
+            bordersize = sc(1),
+            radius = sc(4),
+            color = Blitbuffer.COLOR_BLACK,
+            background = Blitbuffer.COLOR_WHITE,
+            HorizontalGroup:new(bar_segments),
+        }
+
+        card_body = VerticalGroup:new{
+            align = "left",
+            row,
+            VerticalSpan:new{ width = sc(10) },
+            bar_frame,
+        }
+    end
+
     local card = FrameContainer:new{
-        padding = sc(10),
+        padding = has_progress and sc(12) or sc(10),
         padding_left = sc(16),
         padding_right = sc(18),
         radius = theme.radius_toast or sc(8),
         bordersize = theme.border_window or sc(2),
         color = Blitbuffer.COLOR_BLACK,
         background = theme.color_bg or Blitbuffer.COLOR_WHITE,
-        row,
+        width = card_w,
+        card_body,
     }
 
-    local toast_w = math.min(card:getSize().w, max_toast_w)
     local toast_h = card:getSize().h
-    local toast_y = sc(24)
+    local toast_y = math.max(0, math.floor((sh - toast_h) / 2))
 
-    -- Full-screen container with centered alignment guarantees horizontal centering across all screen sizes
-    self.dimen = Geom:new{ x = 0, y = 0, w = sw, h = sh }
-    self[1] = VerticalGroup:new{
+    return VerticalGroup:new{
         align = "center",
         RectSpan:new{ width = sw, height = toast_y },
         card,
     }
+end
+
+function BeelineToastWidget:init()
+    local sw = Screen:getWidth()
+    local sh = Screen:getHeight()
+
+    if self.progress ~= nil then
+        self.progress = math.max(0, math.min(1, tonumber(self.progress) or 0))
+        self._last_rendered_pct = math.floor(self.progress * 100 + 0.5)
+    end
+
+    -- Full-screen container with centered alignment guarantees horizontal & vertical centering across all screen sizes
+    self.dimen = Geom:new{ x = 0, y = 0, w = sw, h = sh }
+    self[1] = self:_buildCard()
 
     if self.dismissable ~= false then
         if Device and Device.hasKeys and Device:hasKeys() then
@@ -297,6 +380,36 @@ function BeelineToastWidget:init()
         self._timer = UIManager:scheduleIn(self.timeout, function()
             self:close()
         end)
+    end
+end
+
+function BeelineToastWidget:updateProgress(fraction, text, title)
+    local clamped = math.max(0, math.min(1, tonumber(fraction) or 0))
+    local pct = math.floor(clamped * 100 + 0.5)
+    local text_changed = (text ~= nil and text ~= self.text)
+    local title_changed = (title ~= nil and title ~= self.title)
+
+    if not text_changed and not title_changed and self._last_rendered_pct ~= nil then
+        local delta = math.abs(pct - self._last_rendered_pct)
+        if delta < 2 and pct < 100 and pct > 0 then
+            self.progress = clamped
+            return
+        end
+    end
+
+    self.progress = clamped
+    self._last_rendered_pct = pct
+    if text ~= nil then self.text = text end
+    if title ~= nil then self.title = title end
+
+    self[1] = self:_buildCard()
+    if UIManager then
+        if UIManager.setDirty then
+            UIManager:setDirty(self, "ui")
+        end
+        if UIManager.forceRePaint then
+            pcall(function() UIManager:forceRePaint() end)
+        end
     end
 end
 
@@ -347,6 +460,24 @@ function M.showToast(msg, timeout, icon_name, title)
     }
     _active_toast = toast
     UIManager:show(toast, "ui")
+    return toast
+end
+
+function M.showProgressToast(title, text, icon_name, initial_progress)
+    _dismissActiveToast()
+    local toast = BeelineToastWidget:new{
+        title = title,
+        text = text or "",
+        icon_name = icon_name or "download",
+        timeout = 0,
+        dismissable = false,
+        progress = initial_progress or 0,
+    }
+    _active_toast = toast
+    UIManager:show(toast, "ui")
+    if UIManager and UIManager.forceRePaint then
+        pcall(function() UIManager:forceRePaint() end)
+    end
     return toast
 end
 
@@ -2493,12 +2624,38 @@ function M.receiveFiles(plugin_instance, is_background, on_done)
         local final_path = DRM.deriveFinalBookPath(inbox_dir, meta)
 
         local function doFulfill()
-            if not is_background then
-                M.showToast(_("Fulfilling %s...", meta and meta.title or item.filename), 3)
+            local book_label = (meta and meta.title and meta.title ~= "" and meta.title) or item.filename
+            local prog_toast = M.showProgressToast(_("Fulfilling Loan"), book_label, "download", 0.05)
+
+            local function onFulfillProgress(stage_or_bytes)
+                if not prog_toast then return true end
+                if type(stage_or_bytes) == "string" then
+                    if stage_or_bytes == "auth" then
+                        prog_toast:updateProgress(0.15)
+                    elseif stage_or_bytes == "license" then
+                        prog_toast:updateProgress(0.25)
+                    elseif stage_or_bytes == "fulfill" then
+                        prog_toast:updateProgress(0.35)
+                    elseif stage_or_bytes == "decrypt" then
+                        prog_toast:updateProgress(0.90)
+                    elseif stage_or_bytes == "finalize" then
+                        prog_toast:updateProgress(0.96)
+                    end
+                elseif type(stage_or_bytes) == "number" then
+                    -- Map downloaded bytes smoothly across 35% -> 85%
+                    local dl_frac = stage_or_bytes / (stage_or_bytes + 2 * 1024 * 1024)
+                    prog_toast:updateProgress(0.35 + (0.50 * dl_frac))
+                end
+                return true
             end
 
             UIManager:nextTick(function()
-                local ok_f, fulfill_res, extra_tracked = DRM.fulfillAcsm(item.path, final_path)
+                local ok_f, fulfill_res, extra_tracked = DRM.fulfillAcsm(item.path, final_path, onFulfillProgress)
+                if prog_toast then
+                    prog_toast:updateProgress(1.0)
+                    prog_toast:close()
+                    prog_toast = nil
+                end
                 if ok_f and fulfill_res then
                     local exp = DRM.extractLoanExpiry(meta or item.path)
                     State.trackBook(final_path, exp, meta and meta.title, extra_tracked)

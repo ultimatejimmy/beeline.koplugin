@@ -485,8 +485,12 @@ function pdf.decryptAdobePdf(inputPath, outputPath, bookKey, licenseKey, fulfill
 
     local decryptCount = 0
     local streamCount = 0
+    local totalIds = math.max(1, #ids)
+    if progress_cb then
+        pcall(progress_cb, "decrypt", 0.15)
+    end
 
-    for _, objid in ipairs(ids) do
+    for idx, objid in ipairs(ids) do
         -- Skip the Encrypt dict itself (ineptpdf.py removes it from trailer)
         if objid ~= doc.encrypt_objid then
             local obj = doc:getobj(objid)
@@ -530,7 +534,7 @@ function pdf.decryptAdobePdf(inputPath, outputPath, bookKey, licenseKey, fulfill
                 if is_large or (decryptCount % 25 == 0) then
                     collectgarbage("collect")
                     if progress_cb then
-                        progress_cb("decrypt")
+                        pcall(progress_cb, "decrypt", 0.15 + (0.80 * (idx / totalIds)))
                     end
                 else
                     collectgarbage("step", 1000)

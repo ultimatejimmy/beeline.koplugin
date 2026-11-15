@@ -71,13 +71,16 @@ def main():
     # Git operations
     print("Executing git commands...")
     try:
-        if version_changed or pkg_changed:
-            files_to_add = []
-            if version_changed:
-                files_to_add.append(str(meta_path.resolve()))
-            if pkg_changed:
-                files_to_add.append(str(pkg_path.resolve()))
-            run_cmd(["git", "add"] + files_to_add, cwd=repo_root)
+        # Stage all tracked modifications in the repository (plugin, spec, worker) so releases never omit fixes
+        run_cmd(["git", "add", "-u"], cwd=repo_root)
+        files_to_add = [str(meta_path.resolve())]
+        if pkg_path.exists():
+            files_to_add.append(str(pkg_path.resolve()))
+        run_cmd(["git", "add"] + files_to_add, cwd=repo_root)
+
+        staged_check = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo_root)
+        has_staged_changes = (staged_check.returncode != 0)
+        if has_staged_changes:
             run_cmd(["git", "commit", "-m", f"Release {new_version}"], cwd=repo_root)
             
         # Check if tag already exists locally
@@ -85,13 +88,18 @@ def main():
         tag_exists = new_version in tag_check.stdout.splitlines()
         if not tag_exists:
             run_cmd(["git", "tag", new_version], cwd=repo_root)
+        elif has_staged_changes:
+            run_cmd(["git", "tag", "-f", new_version], cwd=repo_root)
         else:
             print(f"Tag {new_version} already exists locally. Skipping local tag creation.")
             
         # Push commit and/or tag in a single git push command to avoid entering passphrase twice
         push_cmd = ["git", "push", "origin"]
-        if version_changed or pkg_changed:
-            push_cmd.extend(["HEAD", new_version])
+        if has_staged_changes or version_changed or pkg_changed:
+            if tag_exists and has_staged_changes:
+                push_cmd.extend(["HEAD", f"+refs/tags/{new_version}:refs/tags/{new_version}"])
+            else:
+                push_cmd.extend(["HEAD", new_version])
         else:
             push_cmd.append(new_version)
             

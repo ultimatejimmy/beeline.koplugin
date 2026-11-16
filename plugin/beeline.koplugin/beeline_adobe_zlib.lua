@@ -43,6 +43,7 @@ pcall(ffi.cdef, [[
 const char *zlibVersion(void);
 int inflateInit2_(z_stream *strm, int windowBits, const char *version, int stream_size);
 int inflate(z_stream *strm, int flush);
+int inflateReset(z_stream *strm);
 int inflateEnd(z_stream *strm);
 ]])
 
@@ -135,11 +136,13 @@ zlib._libz = libz
 -- while preserving the exact binary ABI.
 local fn_inflateInit2 = libz.inflateInit2_
 local fn_inflate = libz.inflate
+local fn_inflateReset = libz.inflateReset
 local fn_inflateEnd = libz.inflateEnd
 
 pcall(function()
     fn_inflateInit2 = ffi.cast("int (*)(void *, int, const char *, int)", libz.inflateInit2_)
     fn_inflate = ffi.cast("int (*)(void *, int)", libz.inflate)
+    fn_inflateReset = ffi.cast("int (*)(void *)", libz.inflateReset)
     fn_inflateEnd = ffi.cast("int (*)(void *)", libz.inflateEnd)
 end)
 
@@ -259,7 +262,6 @@ function buildInflater(stream)
 
             if rc == Z_STREAM_END then
                 stream_ended = true
-                freeStream()
                 break
             end
             if rc ~= Z_OK and (rc ~= Z_BUF_ERROR or produced == 0) then
@@ -267,6 +269,19 @@ function buildInflater(stream)
                 return nil, "inflate failed: " .. tostring(rc)
             end
         end
+        return true
+    end
+
+    function inflater:reset()
+        if freed or not fn_inflateReset then
+            return nil, "inflater cannot reset"
+        end
+        local rc = fn_inflateReset(stream)
+        if rc ~= Z_OK then
+            freeStream()
+            return nil, "inflateReset failed: " .. tostring(rc)
+        end
+        stream_ended = false
         return true
     end
 

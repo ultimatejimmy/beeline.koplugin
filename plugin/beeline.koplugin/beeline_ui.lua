@@ -384,6 +384,7 @@ function BeelineToastWidget:init()
 end
 
 function BeelineToastWidget:updateProgress(fraction, text, title)
+    if self._closed then return end
     local clamped = math.max(0, math.min(1, tonumber(fraction) or 0))
     local pct = math.floor(clamped * 100 + 0.5)
     local text_changed = (text ~= nil and text ~= self.text)
@@ -391,7 +392,7 @@ function BeelineToastWidget:updateProgress(fraction, text, title)
 
     if not text_changed and not title_changed and self._last_rendered_pct ~= nil then
         local delta = math.abs(pct - self._last_rendered_pct)
-        if delta < 2 and pct < 100 and pct > 0 then
+        if delta < 12 and pct < 100 and pct > 0 then
             self.progress = clamped
             return
         end
@@ -432,6 +433,8 @@ function BeelineToastWidget:onTap()
 end
 
 function BeelineToastWidget:close()
+    if self._closed then return end
+    self._closed = true
     if self._timer then
         UIManager:unschedule(self._timer)
         self._timer = nil
@@ -705,10 +708,28 @@ end
 -- Component: Pairing QR Code Dialog (Libbee Clean Modal)
 -- ---------------------------------------------------------------------------
 
+local function registerCodeOnWorker(worker_url, code, device_id)
+    if not code or code == "" or not worker_url or worker_url == "" or not device_id or device_id == "" then
+        return false, false
+    end
+    local code_hash = Crypto.getCodeHash(code)
+    local registered_ok = false
+    local was_claimed = false
+    if code_hash then
+        local ok, success, parsed = pcall(Client.registerPairingCode, worker_url, code_hash, device_id)
+        if ok and success and type(parsed) == "table" then
+            registered_ok = true
+            was_claimed = (parsed.claimed == true)
+        end
+    end
+    pcall(Client.registerPairing, worker_url, device_id)
+    return registered_ok, was_claimed
+end
+
 function M.showQRCodeDialog(pairing_code, worker_url, on_close_cb)
     _dismissActiveToast()
     local s = State.loadSettings()
-    pairing_code = pairing_code or s.pairing_code or ""
+    pairing_code = pairing_code or State.getPairingCode() or ""
     worker_url = worker_url or s.worker_url or State.DEFAULT_WORKER_URL
 
     local sw = Screen:getWidth()
@@ -724,6 +745,7 @@ function M.showQRCodeDialog(pairing_code, worker_url, on_close_cb)
     local overlay
     local refresh_qr
     local qr_poll_timer = nil
+    local last_registered_code = nil
 
     local function cancelQrPoll()
         if qr_poll_timer then
@@ -755,22 +777,23 @@ function M.showQRCodeDialog(pairing_code, worker_url, on_close_cb)
         local device_id = State.getDeviceId()
 
         if current_code ~= "" and worker_url ~= "" and device_id ~= "" then
-            local code_hash = Crypto.getCodeHash(current_code)
-            if code_hash then
-                local ok, success, parsed = pcall(Client.registerPairingCode, worker_url, code_hash, device_id)
-                if ok and success and type(parsed) == "table" and parsed.claimed then
-                    -- Already claimed! Persist pairing and rotate right now
-                    if State.markPairingClaimed then
-                        State.markPairingClaimed(current_code)
-                    else
-                        State.addPairedBrowser(current_code)
-                    end
-                    local fresh = State.regeneratePairingCode()
-                    refresh_qr(fresh)
-                    return
+            local reg_ok, was_claimed = registerCodeOnWorker(worker_url, current_code, device_id)
+            if was_claimed then
+                -- Already claimed! Persist pairing and rotate right now
+                if State.markPairingClaimed then
+                    State.markPairingClaimed(current_code)
+                else
+                    State.addPairedBrowser(current_code)
                 end
+                local fresh = State.regeneratePairingCode()
+                refresh_qr(fresh)
+                return
             end
-            pcall(Client.registerPairing, worker_url, device_id)
+            if reg_ok then
+                last_registered_code = current_code
+            elseif last_registered_code ~= current_code then
+                last_registered_code = nil
+            end
         end
 
         local content_items = {}
@@ -988,20 +1011,55 @@ function M.showQRCodeDialog(pairing_code, worker_url, on_close_cb)
             UIManager:show(overlay, "ui")
         end
 
-        -- Live poll while QR dialog is open to detect when claimed by browser
+        -- Live poll while QR dialog is open to detect when claimed or expired
         local checkClaimed
         checkClaimed = function()
             if not overlay then return end
+            if M._receive_in_progress then
+                qr_poll_timer = UIManager:scheduleIn(2.5, checkClaimed)
+                return
+            end
+            if State.isCodeExpired() then
+                local fresh = State.regeneratePairingCode()
+                refresh_qr(fresh)
+                return
+            end
+            local device_id = State.getDeviceId()
+            if current_code ~= "" and worker_url ~= "" and device_id ~= "" and last_registered_code ~= current_code then
+                local reg_ok, was_claimed = registerCodeOnWorker(worker_url, current_code, device_id)
+                if was_claimed then
+                    State.addPairedBrowser(current_code)
+                    M.showToast(_("✓ Browser paired! Code used."), 3)
+                    local fresh = State.regeneratePairingCode()
+                    refresh_qr(fresh)
+                    return
+                end
+                if reg_ok then
+                    last_registered_code = current_code
+                end
+            end
             if current_code ~= "" and worker_url ~= "" then
                 local c_hash = Crypto.getCodeHash(current_code)
                 if c_hash then
                     local ok, success, parsed = pcall(Client.checkPairingCode, worker_url, c_hash)
-                    if ok and success and type(parsed) == "table" and parsed.claimed then
-                        State.addPairedBrowser(current_code)
-                        M.showToast(_("✓ Browser paired! Code used."), 3)
-                        local fresh = State.regeneratePairingCode()
-                        refresh_qr(fresh)
-                        return
+                    if ok and success and type(parsed) == "table" then
+                        if parsed.claimed then
+                            State.addPairedBrowser(current_code)
+                            M.showToast(_("✓ Browser paired! Code used."), 3)
+                            local fresh = State.regeneratePairingCode()
+                            refresh_qr(fresh)
+                            return
+                        elseif parsed.expired then
+                            local fresh = State.regeneratePairingCode()
+                            refresh_qr(fresh)
+                            return
+                        end
+                    elseif ok and not success and type(parsed) == "table" and parsed.found == false then
+                        last_registered_code = nil
+                        if device_id ~= "" then
+                            local reg_ok = registerCodeOnWorker(worker_url, current_code, device_id)
+                            if reg_ok then last_registered_code = current_code end
+                        end
                     end
                 end
             end
@@ -1076,26 +1134,23 @@ function M.showMainDialog(plugin_instance, on_close_cb)
     local pairing_code = State.getPairingCode()
     local worker_url = s.worker_url or State.DEFAULT_WORKER_URL
     local device_id = State.getDeviceId()
+    local last_registered_code = nil
 
     -- Register pairing code and device in background
     if pairing_code ~= "" and worker_url ~= "" and device_id ~= "" then
-        local code_hash = Crypto.getCodeHash(pairing_code)
-        if code_hash then
-            local ok, success, parsed = pcall(Client.registerPairingCode, worker_url, code_hash, device_id)
-            if ok and success and type(parsed) == "table" and parsed.claimed then
-                if State.markPairingClaimed then
-                    State.markPairingClaimed(pairing_code)
-                else
-                    State.addPairedBrowser(pairing_code)
-                end
-                pairing_code = State.regeneratePairingCode()
-                local new_h = Crypto.getCodeHash(pairing_code)
-                if new_h then
-                    pcall(Client.registerPairingCode, worker_url, new_h, device_id)
-                end
+        local reg_ok, was_claimed = registerCodeOnWorker(worker_url, pairing_code, device_id)
+        if was_claimed then
+            if State.markPairingClaimed then
+                State.markPairingClaimed(pairing_code)
+            else
+                State.addPairedBrowser(pairing_code)
             end
+            pairing_code = State.regeneratePairingCode()
+            local new_reg_ok = registerCodeOnWorker(worker_url, pairing_code, device_id)
+            if new_reg_ok then last_registered_code = pairing_code end
+        elseif reg_ok then
+            last_registered_code = pairing_code
         end
-        pcall(Client.registerPairing, worker_url, device_id)
     end
 
     local sw = Screen:getWidth()
@@ -1141,6 +1196,24 @@ function M.showMainDialog(plugin_instance, on_close_cb)
         s = State.loadSettings()
         local current_code = State.getPairingCode()
         worker_url = s.worker_url or State.DEFAULT_WORKER_URL
+        device_id = State.getDeviceId()
+
+        -- Ensure any rotated or previously unregistered code is registered with the worker
+        if current_code ~= "" and worker_url ~= "" and device_id ~= "" and last_registered_code ~= current_code then
+            local reg_ok, was_claimed = registerCodeOnWorker(worker_url, current_code, device_id)
+            if was_claimed then
+                if State.markPairingClaimed then
+                    State.markPairingClaimed(current_code)
+                else
+                    State.addPairedBrowser(current_code)
+                end
+                current_code = State.regeneratePairingCode()
+                local new_reg_ok = registerCodeOnWorker(worker_url, current_code, device_id)
+                if new_reg_ok then last_registered_code = current_code end
+            elseif reg_ok then
+                last_registered_code = current_code
+            end
+        end
 
         -- Title Header with Bee Icon, Settings and Close Feather Icons
         local bee_icon = ImageWidget:new{
@@ -1530,29 +1603,69 @@ function M.showMainDialog(plugin_instance, on_close_cb)
             return true
         end
 
-        -- Live background polling for claim
+        -- Live background polling for claim, retry registration, or auto-rotate on expiry
         local checkClaimed
         checkClaimed = function()
             if not overlay then return end
+            if M._receive_in_progress then
+                poll_timer = UIManager:scheduleIn(3, checkClaimed)
+                return
+            end
+            if State.isCodeExpired() then
+                local fresh = State.regeneratePairingCode()
+                local new_reg_ok = registerCodeOnWorker(worker_url, fresh, device_id)
+                if new_reg_ok then last_registered_code = fresh end
+                refresh()
+                return
+            end
+            if current_code ~= "" and worker_url ~= "" and device_id ~= "" and last_registered_code ~= current_code then
+                local reg_ok, was_claimed = registerCodeOnWorker(worker_url, current_code, device_id)
+                if was_claimed then
+                    if State.markPairingClaimed then
+                        State.markPairingClaimed(current_code)
+                    else
+                        State.addPairedBrowser(current_code)
+                    end
+                    M.showToast(_("✓ Browser paired! Code used."), 3)
+                    local fresh = State.regeneratePairingCode()
+                    local new_reg_ok = registerCodeOnWorker(worker_url, fresh, device_id)
+                    if new_reg_ok then last_registered_code = fresh end
+                    refresh()
+                    return
+                elseif reg_ok then
+                    last_registered_code = current_code
+                end
+            end
             if current_code ~= "" and worker_url ~= "" then
                 local c_hash = Crypto.getCodeHash(current_code)
                 if c_hash then
                     local ok, success, parsed = pcall(Client.checkPairingCode, worker_url, c_hash)
-                    if ok and success and type(parsed) == "table" and parsed.claimed then
-                        if State.markPairingClaimed then
-                            State.markPairingClaimed(current_code)
-                        else
-                            State.addPairedBrowser(current_code)
+                    if ok and success and type(parsed) == "table" then
+                        if parsed.claimed then
+                            if State.markPairingClaimed then
+                                State.markPairingClaimed(current_code)
+                            else
+                                State.addPairedBrowser(current_code)
+                            end
+                            M.showToast(_("✓ Browser paired! Code used."), 3)
+                            local fresh = State.regeneratePairingCode()
+                            local new_reg_ok = registerCodeOnWorker(worker_url, fresh, device_id)
+                            if new_reg_ok then last_registered_code = fresh end
+                            refresh()
+                            return
+                        elseif parsed.expired then
+                            local fresh = State.regeneratePairingCode()
+                            local new_reg_ok = registerCodeOnWorker(worker_url, fresh, device_id)
+                            if new_reg_ok then last_registered_code = fresh end
+                            refresh()
+                            return
                         end
-                        M.showToast(_("✓ Browser paired! Code used."), 3)
-                        local fresh = State.regeneratePairingCode()
-                        local dev_id = State.getDeviceId()
-                        local fresh_hash = Crypto.getCodeHash(fresh)
-                        if fresh_hash and dev_id ~= "" then
-                            pcall(Client.registerPairingCode, worker_url, fresh_hash, dev_id)
+                    elseif ok and not success and type(parsed) == "table" and parsed.found == false then
+                        last_registered_code = nil
+                        if device_id ~= "" then
+                            local reg_ok = registerCodeOnWorker(worker_url, current_code, device_id)
+                            if reg_ok then last_registered_code = current_code end
                         end
-                        refresh()
-                        return
                     end
                 end
             end
@@ -2444,143 +2557,179 @@ function M.receiveFiles(plugin_instance, is_background, on_done)
         return
     end
 
-    local status_toast = nil
+    M._receive_in_progress = true
+
+    local prog_toast = nil
     if not is_background then
-        status_toast = M.showToast(_("🐝 Checking Beeline inbox…"), 0)
+        prog_toast = M.showProgressToast(_("Checking Inbox"), _("Connecting to Beeline…"), "download", 0.05)
     end
 
-    local dismissStatus = function()
-        if status_toast then
-            status_toast:close()
-            status_toast = nil
+    local function closeProgToast()
+        if prog_toast then
+            prog_toast:close()
+            prog_toast = nil
         end
     end
 
-    local query_ids = {}
-    if device_id ~= "" then
-        table.insert(query_ids, device_id)
-    end
-    local legacy_hash = Crypto.getDeviceHash(pairing_code)
-    if legacy_hash and legacy_hash ~= device_id then
-        table.insert(query_ids, legacy_hash)
-    end
-
-    local all_files = {}
-    local fetch_err = nil
-    for _, dev_id in ipairs(query_ids) do
-        local files, err = Client.fetchInbox(worker_url, dev_id)
-        if files then
-            for _, f in ipairs(files) do
-                table.insert(all_files, { meta = f, device_id = dev_id })
-            end
-        else
-            fetch_err = err
+    local function runReceiveBody()
+        local query_ids = {}
+        if device_id ~= "" then
+            table.insert(query_ids, device_id)
         end
-    end
-
-    dismissStatus()
-
-    local pending_acsm = findUnfulfilledAcsmFiles(inbox_dir)
-
-    if #all_files == 0 and #pending_acsm == 0 and fetch_err and not is_background then
-        M.showToast(_("Inbox check failed: %s", tostring(fetch_err)), 4)
-        if on_done then on_done(false) end
-        return
-    end
-
-    if #all_files == 0 and #pending_acsm == 0 then
-        if not is_background then
-            M.showToast(_("No incoming files found."), 3)
+        local legacy_hash = Crypto.getDeviceHash(pairing_code)
+        if legacy_hash and legacy_hash ~= device_id then
+            table.insert(query_ids, legacy_hash)
         end
-        if on_done then on_done(false) end
-        return
-    end
 
-    ensureDir(inbox_dir)
-
-    local received_items = {}
-    local failed_count = 0
-
-    for _, item_info in ipairs(all_files) do
-        local file_meta = item_info.meta
-        local dev_id = item_info.device_id
-        local envelope = Client.downloadFile(worker_url, dev_id, file_meta.id)
-        if envelope then
-            local decrypted = nil
-            local dec_err = nil
-            for _, code_cand in ipairs(active_codes) do
-                local dec, err = Crypto.decryptEnvelope(envelope, code_cand)
-                if dec and dec.data then
-                    decrypted = dec
-                    State.addPairedBrowser(code_cand)
-                    break
-                else
-                    dec_err = err
+        local all_files = {}
+        local fetch_err = nil
+        for idx, dev_id in ipairs(query_ids) do
+            local files, err = Client.fetchInbox(worker_url, dev_id)
+            if files then
+                for _, f in ipairs(files) do
+                    table.insert(all_files, { meta = f, device_id = dev_id })
                 end
+            else
+                fetch_err = err
             end
+            if prog_toast then
+                prog_toast:updateProgress(0.05 + 0.10 * (idx / math.max(1, #query_ids)))
+            end
+        end
 
-            if decrypted and decrypted.data then
-                local filename = sanitizeFilename(decrypted.metadata.filename)
-                local target_path = inbox_dir .. "/" .. filename
+        local pending_acsm = findUnfulfilledAcsmFiles(inbox_dir)
 
-                -- Avoid overwrite by appending counter if needed
-                local counter = 1
-                while true do
-                    local f = io.open(target_path, "r")
-                    if not f then break end
-                    f:close()
-                    local base, ext = filename:match("^(.+)(%..+)$")
-                    base = base or filename
-                    ext = ext or ""
-                    target_path = string.format("%s/%s (%d)%s", inbox_dir, base, counter, ext)
-                    counter = counter + 1
-                end
+        if #all_files == 0 and #pending_acsm == 0 and fetch_err and not is_background then
+            closeProgToast()
+            M._receive_in_progress = nil
+            M.showToast(_("Inbox check failed: %s", tostring(fetch_err)), 4)
+            if on_done then on_done(false) end
+            return
+        end
 
-                local out_f = io.open(target_path, "wb")
-                if out_f then
-                    local write_ok = out_f:write(decrypted.data)
-                    if write_ok and out_f.flush then
-                        local fl_ok = out_f:flush()
-                        if fl_ok == false then write_ok = false end
-                    end
-                    local close_ok = out_f:close()
-                    if close_ok == false then write_ok = false end
-                    if not write_ok then
-                        pcall(os.remove, target_path)
-                        failed_count = failed_count + 1
+        if #all_files == 0 and #pending_acsm == 0 then
+            closeProgToast()
+            M._receive_in_progress = nil
+            if not is_background then
+                M.showToast(_("No incoming files found."), 3)
+            end
+            if on_done then on_done(false) end
+            return
+        end
+
+        ensureDir(inbox_dir)
+
+        local received_items = {}
+        local failed_count = 0
+
+        for i, item_info in ipairs(all_files) do
+            local file_meta = item_info.meta
+            local dev_id = item_info.device_id
+            local slice_start = 0.15 + 0.80 * ((i - 1) / #all_files)
+            local slice_end = 0.15 + 0.80 * (i / #all_files)
+            local slice_span = slice_end - slice_start
+
+            local progress_cb = nil
+            if prog_toast then
+                local dl_msg = (#all_files > 1)
+                    and _("Downloading file %d of %d…", i, #all_files)
+                    or _("Downloading file…")
+                prog_toast:updateProgress(slice_start, dl_msg, _("Downloading Files"))
+                local expected_size = tonumber(file_meta.size) or 0
+                progress_cb = function(bytes)
+                    if not prog_toast then return end
+                    local dl_frac
+                    if expected_size > 0 then
+                        dl_frac = math.min(1, bytes / expected_size)
                     else
-                        -- Delete remote copy only after verified local write
-                        Client.deleteRemoteFile(worker_url, dev_id, file_meta.id)
+                        dl_frac = bytes / (bytes + 1024 * 1024)
+                    end
+                    prog_toast:updateProgress(slice_start + (0.85 * slice_span * dl_frac))
+                end
+            end
 
-                        local is_acsm_file = (filename:lower():match("%.acsm$") ~= nil)
-                        table.insert(received_items, {
-                            path = target_path,
-                            filename = filename,
-                            size = #decrypted.data,
-                            is_book = not is_acsm_file,
-                        })
+            local envelope = Client.downloadFile(worker_url, dev_id, file_meta.id, progress_cb)
+            if envelope then
+                if prog_toast then
+                    local dec_msg = (#all_files > 1)
+                        and _("Decrypting file %d of %d…", i, #all_files)
+                        or _("Decrypting file…")
+                    prog_toast:updateProgress(slice_start + (0.85 * slice_span), dec_msg)
+                end
+                local decrypted = nil
+                local dec_err = nil
+                for _, code_cand in ipairs(active_codes) do
+                    local dec, err = Crypto.decryptEnvelope(envelope, code_cand)
+                    if dec and dec.data then
+                        decrypted = dec
+                        State.addPairedBrowser(code_cand)
+                        break
+                    else
+                        dec_err = err
+                    end
+                end
 
-                        -- Update file manager immediately if it's a real book
-                        if not is_acsm_file then
-                            refreshFileManager(inbox_dir)
+                if decrypted and decrypted.data then
+                    local filename = sanitizeFilename(decrypted.metadata.filename)
+                    local target_path = inbox_dir .. "/" .. filename
+
+                    -- Avoid overwrite by appending counter if needed
+                    local counter = 1
+                    while true do
+                        local f = io.open(target_path, "r")
+                        if not f then break end
+                        f:close()
+                        local base, ext = filename:match("^(.+)(%..+)$")
+                        base = base or filename
+                        ext = ext or ""
+                        target_path = string.format("%s/%s (%d)%s", inbox_dir, base, counter, ext)
+                        counter = counter + 1
+                    end
+
+                    local out_f = io.open(target_path, "wb")
+                    if out_f then
+                        local write_ok = out_f:write(decrypted.data)
+                        if write_ok and out_f.flush then
+                            local fl_ok = out_f:flush()
+                            if fl_ok == false then write_ok = false end
                         end
+                        local close_ok = out_f:close()
+                        if close_ok == false then write_ok = false end
+                        if not write_ok then
+                            pcall(os.remove, target_path)
+                            failed_count = failed_count + 1
+                        else
+                            -- Delete remote copy only after verified local write
+                            Client.deleteRemoteFile(worker_url, dev_id, file_meta.id)
 
-                        -- If receiving multiple files in background, show progress toast like Calibre
-                        if is_background and #all_files > 1 then
-                            showDownloadToast(_("Received file %d of %d:\n%s", #received_items, #all_files, filename), 2, "download", _("Incoming Transfer"))
+                            local is_acsm_file = (filename:lower():match("%.acsm$") ~= nil)
+                            table.insert(received_items, {
+                                path = target_path,
+                                filename = filename,
+                                size = #decrypted.data,
+                                is_book = not is_acsm_file,
+                            })
+
+                            -- If receiving multiple files in background, show progress toast like Calibre
+                            if is_background and #all_files > 1 then
+                                showDownloadToast(_("Received file %d of %d:\n%s", #received_items, #all_files, filename), 2, "download", _("Incoming Transfer"))
+                            end
                         end
+                    else
+                        failed_count = failed_count + 1
                     end
                 else
+                    logger.warn("Beeline: decryption error: " .. tostring(dec_err))
                     failed_count = failed_count + 1
                 end
             else
-                logger.warn("Beeline: decryption error: " .. tostring(dec_err))
                 failed_count = failed_count + 1
             end
-        else
-            failed_count = failed_count + 1
+
+            if prog_toast then
+                prog_toast:updateProgress(slice_end)
+            end
         end
-    end
 
     -- Also process any unfulfilled .acsm files present in the inbox
     local seen_paths = {}
@@ -2604,12 +2753,24 @@ function M.receiveFiles(plugin_instance, is_background, on_done)
         end)
     end
 
+    local acsm_total = 0
+    for _, it in ipairs(received_items) do
+        if (it.filename or ""):lower():match("%.acsm$") then
+            acsm_total = acsm_total + 1
+        end
+    end
+
+    if acsm_total == 0 and prog_toast then
+        prog_toast:updateProgress(1.0)
+    end
+    closeProgToast()
+
     -- Process ACSM fulfillments
     local CURRENT_CONSENT_VERSION = 1
     local consent_version = State.getDrmConsentVersion() or 0
     local has_consent = (consent_version >= CURRENT_CONSENT_VERSION)
 
-    local function handleFulfillment(item, on_item_done)
+    local function handleFulfillment(item, on_item_done, acsm_idx)
         local is_acsm = (item.filename or ""):lower():match("%.acsm$") ~= nil
         if not is_acsm then
             return on_item_done(item)
@@ -2625,36 +2786,44 @@ function M.receiveFiles(plugin_instance, is_background, on_done)
 
         local function doFulfill()
             local book_label = (meta and meta.title and meta.title ~= "" and meta.title) or item.filename
-            local prog_toast = M.showProgressToast(_("Fulfilling Loan"), book_label, "download", 0.05)
+            local fulfill_title = (acsm_total > 1)
+                and _("Fulfilling Loan (%d/%d)", acsm_idx or 1, acsm_total)
+                or _("Fulfilling Loan")
+            local fulfill_toast = M.showProgressToast(fulfill_title, book_label, "download", 0.05)
 
             local function onFulfillProgress(stage_or_bytes)
-                if not prog_toast then return true end
+                if not fulfill_toast then return true end
                 if type(stage_or_bytes) == "string" then
                     if stage_or_bytes == "auth" then
-                        prog_toast:updateProgress(0.15)
+                        fulfill_toast:updateProgress(0.15)
                     elseif stage_or_bytes == "license" then
-                        prog_toast:updateProgress(0.25)
+                        fulfill_toast:updateProgress(0.25)
                     elseif stage_or_bytes == "fulfill" then
-                        prog_toast:updateProgress(0.35)
+                        fulfill_toast:updateProgress(0.35)
                     elseif stage_or_bytes == "decrypt" then
-                        prog_toast:updateProgress(0.90)
+                        fulfill_toast:updateProgress(0.90)
                     elseif stage_or_bytes == "finalize" then
-                        prog_toast:updateProgress(0.96)
+                        fulfill_toast:updateProgress(0.96)
                     end
                 elseif type(stage_or_bytes) == "number" then
                     -- Map downloaded bytes smoothly across 35% -> 85%
                     local dl_frac = stage_or_bytes / (stage_or_bytes + 2 * 1024 * 1024)
-                    prog_toast:updateProgress(0.35 + (0.50 * dl_frac))
+                    fulfill_toast:updateProgress(0.35 + (0.50 * dl_frac))
                 end
                 return true
             end
 
             UIManager:nextTick(function()
-                local ok_f, fulfill_res, extra_tracked = DRM.fulfillAcsm(item.path, final_path, onFulfillProgress)
-                if prog_toast then
-                    prog_toast:updateProgress(1.0)
-                    prog_toast:close()
-                    prog_toast = nil
+                local call_ok, ok_f, fulfill_res, extra_tracked = pcall(DRM.fulfillAcsm, item.path, final_path, onFulfillProgress)
+                if not call_ok then
+                    logger.warn("Beeline: DRM.fulfillAcsm error: " .. tostring(ok_f))
+                    fulfill_res = tostring(ok_f)
+                    ok_f = false
+                end
+                if fulfill_toast then
+                    fulfill_toast:updateProgress(1.0)
+                    fulfill_toast:close()
+                    fulfill_toast = nil
                 end
                 if ok_f and fulfill_res then
                     local exp = DRM.extractLoanExpiry(meta or item.path)
@@ -2675,9 +2844,6 @@ function M.receiveFiles(plugin_instance, is_background, on_done)
                         fulfilled_item.size = f:seek("end") or 0
                         f:close()
                     end
-
-                    -- Update file manager immediately so fulfilled book appears right away
-                    refreshFileManager(inbox_dir)
 
                     if is_background then
                         local book_title = (meta and meta.title) or fulfilled_item.filename
@@ -2775,6 +2941,7 @@ function M.receiveFiles(plugin_instance, is_background, on_done)
 
     local finishReceiveUi
     finishReceiveUi = function(items_to_show)
+        M._receive_in_progress = nil
         -- Separate successful books from unfulfilled tokens and errors
         local successful_books = {}
         for _, it in ipairs(items_to_show) do
@@ -2896,18 +3063,49 @@ function M.receiveFiles(plugin_instance, is_background, on_done)
         end
     end
 
+    local acsm_seen = 0
     local function processNextItem(idx, processed_list)
         if idx > #received_items then
             -- Done processing all items
             return finishReceiveUi(processed_list)
         end
-        handleFulfillment(received_items[idx], function(res_item)
+        local item = received_items[idx]
+        local is_acsm = (item.filename or ""):lower():match("%.acsm$") ~= nil
+        if is_acsm then
+            acsm_seen = acsm_seen + 1
+        end
+        handleFulfillment(item, function(res_item)
             table.insert(processed_list, res_item)
             processNextItem(idx + 1, processed_list)
-        end)
+        end, acsm_seen)
     end
 
     return processNextItem(1, {})
+    end
+
+    if not is_background and UIManager and UIManager.nextTick then
+        UIManager:nextTick(function()
+            local ok_body, body_err = pcall(runReceiveBody)
+            if not ok_body then
+                logger.warn("Beeline: receiveFiles error: " .. tostring(body_err))
+                closeProgToast()
+                M._receive_in_progress = nil
+                M.showToast(_("Inbox check failed: %s", tostring(body_err)), 4)
+                if on_done then on_done(false) end
+            end
+        end)
+    else
+        local ok_body, body_err = pcall(runReceiveBody)
+        if not ok_body then
+            logger.warn("Beeline: receiveFiles error: " .. tostring(body_err))
+            closeProgToast()
+            M._receive_in_progress = nil
+            if not is_background then
+                M.showToast(_("Inbox check failed: %s", tostring(body_err)), 4)
+            end
+            if on_done then on_done(false) end
+        end
+    end
 end
 
 return M

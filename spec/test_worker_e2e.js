@@ -1,6 +1,7 @@
 import worker from "../worker/worker.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import vm from "node:vm";
 
 async function run() {
   console.log("=== BEELINE WORKER PAIRING & E2E TEST ===");
@@ -355,6 +356,158 @@ async function run() {
   console.log("11c. Upload after explicit unpair -> HTTP", rejectedUploadResp.status);
   if (rejectedUploadResp.status !== 403) {
     throw new Error("Upload from revoked device must be rejected with 403!");
+  }
+
+  // =========================================================================
+  // 12. Web UI Paired Session Persistence & Stale ?code= Recovery
+  // =========================================================================
+  console.log("\n--- Testing Web UI Paired Session Persistence ---");
+
+  // Re-register device and a fresh code3
+  const code3 = "M7R-2P9";
+  const norm3 = code3.toUpperCase().replace(/[\s-]/g, "");
+  const codeHash3 = crypto.createHash("sha256").update(norm3 + ":beeline-pairing").digest("hex");
+  await worker.fetch(new Request("https://beeline.example.com/api/pair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "register_code", codeHash: codeHash3, deviceId: koreaderDeviceId }),
+  }), env);
+
+  // Extract the main <script> block from served HTML
+  const scriptMatches = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  const mainScript = scriptMatches[scriptMatches.length - 1][1];
+
+  // Shared browser localStorage across reloads
+  const lsMap = new Map();
+  const sharedLocalStorage = {
+    getItem: (k) => (lsMap.has(k) ? lsMap.get(k) : null),
+    setItem: (k, v) => { lsMap.set(k, String(v)); },
+    removeItem: (k) => { lsMap.delete(k); },
+  };
+
+  async function runBrowserPageLoad(initialHref) {
+    let currentHref = initialHref;
+    const elements = new Map();
+    function makeEl(id) {
+      if (elements.has(id)) return elements.get(id);
+      const attrs = {};
+      const listeners = {};
+      const el = {
+        id,
+        value: "",
+        textContent: "",
+        innerHTML: "",
+        title: "",
+        disabled: false,
+        readOnly: false,
+        style: {},
+        className: "",
+        classList: {
+          _set: new Set(),
+          add(c) { this._set.add(c); },
+          remove(c) { this._set.delete(c); },
+          contains(c) { return this._set.has(c); },
+        },
+        setAttribute(k, v) { attrs[k] = String(v); },
+        getAttribute(k) { return attrs[k] ?? null; },
+        removeAttribute(k) { delete attrs[k]; },
+        addEventListener(evt, fn) {
+          listeners[evt] = listeners[evt] || [];
+          listeners[evt].push(fn);
+        },
+        async dispatch(evt, payload = {}) {
+          for (const fn of (listeners[evt] || [])) {
+            await fn(payload);
+          }
+        },
+      };
+      elements.set(id, el);
+      return el;
+    }
+
+    const docListeners = {};
+    const winListeners = {};
+    const sandbox = {
+      URL,
+      URLSearchParams,
+      TextEncoder,
+      Uint8Array,
+      DataView,
+      Set,
+      Promise,
+      setTimeout,
+      clearTimeout,
+      crypto: crypto.webcrypto,
+      localStorage: sharedLocalStorage,
+      fetch: (path, init) => worker.fetch(new Request("https://beeline.example.com" + path, init), env),
+      window: {
+        location: {
+          get href() { return currentHref; },
+          get hash() { return new URL(currentHref).hash; },
+        },
+        history: {
+          replaceState(_state, _title, newUrl) {
+            currentHref = new URL(newUrl, currentHref).toString();
+          },
+        },
+        matchMedia: () => ({ matches: false }),
+        addEventListener(evt, fn) {
+          winListeners[evt] = winListeners[evt] || [];
+          winListeners[evt].push(fn);
+        },
+      },
+      document: {
+        hidden: false,
+        documentElement: { setAttribute() {}, getAttribute() { return "dark"; } },
+        getElementById: (id) => makeEl(id),
+        createElement: () => makeEl("dyn_" + Math.random()),
+        createTextNode: (t) => ({ textContent: t }),
+        addEventListener(evt, fn) {
+          docListeners[evt] = docListeners[evt] || [];
+          docListeners[evt].push(fn);
+        },
+      },
+    };
+    sandbox.window.window = sandbox.window;
+
+    vm.runInNewContext(mainScript, sandbox);
+    // Allow async initPairing() microtasks/fetches to settle
+    await new Promise(r => setTimeout(r, 50));
+
+    return {
+      get href() { return currentHref; },
+      pairBadge: makeEl("pairBadge"),
+      pairingInput: makeEl("pairingCode"),
+      btnCheckPair: makeEl("btnCheckPair"),
+      statusMsg: makeEl("statusMsg"),
+    };
+  }
+
+  // 12a. First visit with QR code URL pairs and strips ?code= from URL
+  const page1 = await runBrowserPageLoad(`https://beeline.example.com/?code=${code3}`);
+  console.log("12a. Initial QR pair -> badge:", page1.pairBadge.textContent, "href:", page1.href, "readOnly:", page1.pairingInput.readOnly);
+  if (!page1.pairBadge.textContent.includes("Paired") || page1.href.includes("code=") || !page1.pairingInput.readOnly) {
+    throw new Error("Expected paired state, stripped ?code= URL, and readOnly input!");
+  }
+
+  // 12b. Reopen/reload tab with a stale/expired ?code=ZZZ-999 while already paired -> MUST stay paired!
+  const page2 = await runBrowserPageLoad("https://beeline.example.com/?code=ZZZ-999");
+  console.log("12b. Stale ?code= reload while paired -> badge:", page2.pairBadge.textContent, "href:", page2.href);
+  if (!page2.pairBadge.textContent.includes("Paired") || page2.pairBadge.textContent.includes("expired") || page2.href.includes("code=")) {
+    throw new Error("Paired browser must stay paired and strip stale ?code= instead of showing Code expired!");
+  }
+
+  // 12c. Single tap on Disconnect should ask for confirmation, not immediately clear session
+  await page2.btnCheckPair.dispatch("click");
+  if (!page2.btnCheckPair.textContent.includes("Tap again") || !sharedLocalStorage.getItem("beeline_session")) {
+    throw new Error("First tap on Disconnect should require confirmation and preserve session!");
+  }
+
+  // 12d. Second tap on Disconnect should clear session
+  await page2.btnCheckPair.dispatch("click");
+  await new Promise(r => setTimeout(r, 20));
+  if (sharedLocalStorage.getItem("beeline_session") !== null || page2.pairingInput.readOnly !== false) {
+    throw new Error("Second tap on Disconnect should clear session and unlock input!");
   }
 
   console.log("=== ALL PAIRING ENFORCEMENT & E2E TESTS PASSED! ===");

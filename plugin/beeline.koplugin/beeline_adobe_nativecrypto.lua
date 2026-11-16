@@ -482,6 +482,18 @@ function nativecrypto.aes_cbc_decryptor(key, iv, no_padding)
         return out, outl[0]
     end
 
+    function decryptor:reset(new_iv, new_key)
+        local r_ok = libcrypto.EVP_DecryptInit_ex(ctx, nil, nil, new_key, new_iv)
+        if r_ok ~= 1 then
+            return nil, "EVP_DecryptInit_ex reset failed"
+        end
+        if no_padding then
+            libcrypto.EVP_CIPHER_CTX_set_padding(ctx, 0)
+        end
+        finalized = false
+        return true
+    end
+
     return decryptor
 end
 

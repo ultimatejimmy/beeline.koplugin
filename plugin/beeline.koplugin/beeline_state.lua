@@ -372,14 +372,25 @@ function M.generatePairingCode()
     end
     local code = string.format("%s%s%s-%s%s%s", c[1], c[2], c[3], c[4], c[5], c[6])
     local norm = (c[1]..c[2]..c[3]..c[4]..c[5]..c[6]):upper()
-    local s = _cached_settings or {}
+    local s = _cached_settings or M.loadSettings()
+    local now = os.time()
     s.pairing_code = code
-    s.code_created_at = os.time()
+    s.code_created_at = now
     -- Only register the current active code for decryption; do not falsely mark as paired
     s.active_codes = s.active_codes or {}
+    s.paired_browsers = s.paired_browsers or {}
+    -- Prune stale unpaired codes older than 24h so dead codes do not accumulate
+    for k, v in pairs(s.active_codes) do
+        if k ~= norm and not s.paired_browsers[k] then
+            local created = type(v) == "table" and tonumber(v.created_at) or 0
+            if created > 0 and (now - created) >= 86400 then
+                s.active_codes[k] = nil
+            end
+        end
+    end
     s.active_codes[norm] = {
         code = code,
-        created_at = os.time(),
+        created_at = now,
     }
     M.saveSettings(s)
     return code

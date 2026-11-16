@@ -309,6 +309,16 @@ function BeelinePlugin:onCloseWidget()
     end)
 end
 
+function BeelinePlugin:onExit()
+    self:stopBackgroundSync()
+    pcall(function()
+        local ok_eph, Ephemeral = pcall(require, plugin_path .. "beeline_ephemeral")
+        if ok_eph and Ephemeral and Ephemeral.cleanupAllSessions then
+            Ephemeral.cleanupAllSessions()
+        end
+    end)
+end
+
 function BeelinePlugin:onNetworkConnected()
     local ok_state, State = pcall(require, plugin_path .. "beeline_state")
     if not ok_state or not State then return end

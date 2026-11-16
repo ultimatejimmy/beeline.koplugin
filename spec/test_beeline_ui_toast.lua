@@ -214,4 +214,139 @@ State.unpairAllDevices()
 assert(State.getPairedBrowserCount() == 0, "Paired count after unpairAllDevices must be 0")
 print("PASS: paired browser tracking verification")
 
+-- 6. Test BeelineToastWidget:_closed guard
+do
+    local t = UI.showProgressToast("Test", "Working…", "download", 0.1)
+    assert(t._closed == nil, "New progress toast should not be closed")
+    t:close()
+    assert(t._closed == true, "Closed progress toast must set _closed = true")
+    mock_uimanager.repainted = false
+    t:updateProgress(0.8, "Should be ignored")
+    assert(mock_uimanager.repainted == false, "updateProgress after close() must be a no-op")
+    print("PASS: BeelineToastWidget _closed guard verification")
+end
+
+-- 7. Test M.receiveFiles checking/downloading progress & multi-file fulfillment safety
+do
+    local Client = require("beeline_client")
+    local Crypto = require("beeline_crypto")
+    local orig_fetch = Client.fetchInbox
+    local orig_download = Client.downloadFile
+    local orig_delete = Client.deleteRemoteFile
+    local orig_decrypt = Crypto.decryptEnvelope
+
+    -- Configure State so receiveFiles proceeds
+    local st = State.loadSettings()
+    local saved_url, saved_code, saved_inbox, saved_consent = st.worker_url, st.pairing_code, st.inbox_dir, st.drm_consent_version
+    st.worker_url = "https://example.workers.dev"
+    st.pairing_code = "TEST-123"
+    st.inbox_dir = "/tmp/beeline_test_inbox"
+    st.drm_consent_version = 1
+    State.saveSettings(st)
+    os.execute("mkdir -p /tmp/beeline_test_inbox 2>/dev/null")
+
+    -- 7a. Empty inbox shows Checking Inbox then closes cleanly
+    mock_shown = {}
+    local closed_widgets = {}
+    local orig_close = mock_uimanager.close
+    mock_uimanager.close = function(self, w) table.insert(closed_widgets, w) end
+    Client.fetchInbox = function() return {} end
+    local empty_done = nil
+    UI.receiveFiles({}, false, function(ok) empty_done = ok end)
+    assert(empty_done == false, "Empty inbox should invoke on_done(false)")
+    assert(#mock_shown >= 2, "Should show Checking Inbox progress toast then No incoming files toast")
+    assert(mock_shown[1].title == "Checking Inbox", "First toast should be Checking Inbox, got: " .. tostring(mock_shown[1].title))
+    assert(mock_shown[1]._closed == true, "Checking Inbox toast must be closed when inbox is empty")
+    print("PASS: receiveFiles empty inbox progress toast lifecycle")
+
+    -- 7b. Multi-file download + multi-ACSM fulfillment with error resilience & single refresh
+    mock_shown = {}
+    mock_fc.path = "/tmp/beeline_test_inbox"
+    mock_fc.refreshed = false
+    local refresh_calls = 0
+    local orig_refresh_path = mock_fc.refreshPath
+    mock_fc.refreshPath = function(self)
+        self.refreshed = true
+        refresh_calls = refresh_calls + 1
+    end
+
+    local cb_seen = 0
+    local fetch_calls = 0
+    Client.fetchInbox = function()
+        fetch_calls = fetch_calls + 1
+        if fetch_calls == 1 then
+            return {
+                { id = "f1", size = 1000 },
+                { id = "f2", size = 1000 },
+            }
+        end
+        return {}
+    end
+    Client.downloadFile = function(w, d, id, progress_cb)
+        if type(progress_cb) == "function" then
+            cb_seen = cb_seen + 1
+            progress_cb(500)
+            progress_cb(1000)
+        end
+        return "ENV:" .. tostring(id)
+    end
+    Client.deleteRemoteFile = function() return true end
+    Crypto.decryptEnvelope = function(env)
+        if env == "ENV:f1" then
+            return { data = "<acsm>1</acsm>", metadata = { filename = "loan1.acsm" } }
+        else
+            return { data = "<acsm>2</acsm>", metadata = { filename = "loan2.acsm" } }
+        end
+    end
+
+    local fulfill_calls = 0
+    local orig_drm = package.loaded["beeline_drm"]
+    package.loaded["beeline_drm"] = {
+        parseAcsmMetadata = function(p) return { title = p:match("loan1") and "Book One" or "Book Two" } end,
+        deriveFinalBookPath = function(dir, meta) return dir .. "/" .. (meta.title:gsub(" ", "_") .. ".epub") end,
+        extractLoanExpiry = function() return os.time() + 86400 end,
+        fulfillAcsm = function(acsm_path, final_path, cb)
+            fulfill_calls = fulfill_calls + 1
+            assert(refresh_calls == 0, "refreshFileManager must NOT run mid-batch before all fulfillments finish")
+            if fulfill_calls == 1 then
+                local f = io.open(final_path, "wb"); f:write("epub1"); f:close()
+                return true, true
+            else
+                error("simulated DRM crash")
+            end
+        end,
+    }
+
+    UI.receiveFiles({}, false, function() end)
+    assert(cb_seen == 2, "downloadFile must receive progress_cb for both files, got: " .. tostring(cb_seen))
+    assert(fulfill_calls == 2, "Both ACSM files should be processed sequentially")
+    assert(refresh_calls == 1, "refreshFileManager must run exactly once at the end, got: " .. tostring(refresh_calls))
+
+    local saw_fulfill_1, saw_fulfill_2, saw_opening = false, false, false
+    for _, w in ipairs(mock_shown) do
+        if w.title == "Fulfilling Loan (1/2)" then saw_fulfill_1 = true end
+        if w.title == "Fulfilling Loan (2/2)" then saw_fulfill_2 = true end
+        if w.title == "Opening Book" then saw_opening = true end
+        if w.progress ~= nil then
+            assert(w._closed == true, "Progress toast '" .. tostring(w.title) .. "' must not be left open/stranded")
+        end
+    end
+    assert(saw_fulfill_1 and saw_fulfill_2, "Should show numbered Fulfilling Loan (1/2) and (2/2) titles")
+    assert(not saw_opening, "Must never switch to Opening Book during multi-file fulfillment")
+    assert(UI._receive_in_progress == nil, "_receive_in_progress must be cleared when done")
+    print("PASS: receiveFiles multi-file progress, single refresh & pcall error safety")
+
+    -- Restore mocks & cleanup
+    mock_uimanager.close = orig_close
+    mock_fc.refreshPath = orig_refresh_path
+    package.loaded["beeline_drm"] = orig_drm
+    Client.fetchInbox = orig_fetch
+    Client.downloadFile = orig_download
+    Client.deleteRemoteFile = orig_delete
+    Crypto.decryptEnvelope = orig_decrypt
+    os.execute("rm -rf /tmp/beeline_test_inbox 2>/dev/null")
+    st.worker_url, st.pairing_code, st.inbox_dir, st.drm_consent_version = saved_url, saved_code, saved_inbox, saved_consent
+    State.saveSettings(st)
+end
+
 print("ALL UI TOAST, REFRESH & DIALOG TESTS PASSED!")

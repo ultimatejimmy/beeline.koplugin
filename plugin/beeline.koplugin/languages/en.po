@@ -125,6 +125,9 @@ msgstr "Cancel"
 msgid "Check for Incoming Files"
 msgstr "Check for Incoming Files"
 
+msgid "Checking Inbox"
+msgstr "Checking Inbox"
+
 msgid "Close"
 msgstr "Close"
 
@@ -145,6 +148,9 @@ msgstr "Code: %s"
 
 msgid "Configuration Required"
 msgstr "Configuration Required"
+
+msgid "Connecting to Beeline…"
+msgstr "Connecting to Beeline…"
 
 msgid "Connection"
 msgstr "Connection"
@@ -185,6 +191,12 @@ msgstr "Decline"
 msgid "Decrypting book…"
 msgstr "Decrypting book…"
 
+msgid "Decrypting file %d of %d…"
+msgstr "Decrypting file %d of %d…"
+
+msgid "Decrypting file…"
+msgstr "Decrypting file…"
+
 msgid "Decryption Failed"
 msgstr "Decryption Failed"
 
@@ -215,6 +227,15 @@ msgstr "Disconnect All Browsers?"
 msgid "Downloaded to Library"
 msgstr "Downloaded to Library"
 
+msgid "Downloading Files"
+msgstr "Downloading Files"
+
+msgid "Downloading file %d of %d…"
+msgstr "Downloading file %d of %d…"
+
+msgid "Downloading file…"
+msgstr "Downloading file…"
+
 msgid "Enter full HTTPS endpoint of your Beeline Worker:"
 msgstr "Enter full HTTPS endpoint of your Beeline Worker:"
 
@@ -229,6 +250,9 @@ msgstr "Folder"
 
 msgid "Fulfilling Loan"
 msgstr "Fulfilling Loan"
+
+msgid "Fulfilling Loan (%d/%d)"
+msgstr "Fulfilling Loan (%d/%d)"
 
 msgid "Fulfillment Failed"
 msgstr "Fulfillment Failed"
@@ -514,7 +538,4 @@ msgstr "↻  New Code"
 
 msgid "✓ Browser paired! Code used."
 msgstr "✓ Browser paired! Code used."
-
-msgid "🐝 Checking Beeline inbox…"
-msgstr "🐝 Checking Beeline inbox…"
 

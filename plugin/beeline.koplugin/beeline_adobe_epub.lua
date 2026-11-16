@@ -17,11 +17,13 @@ local AES128_CBC = "http://www.w3.org/2001/04/xmlenc#aes128-cbc"
 local AES128_CBC_UNCOMPRESSED = "http://ns.adobe.com/adept/xmlenc#aes128-cbc-uncompressed"
 
 local CHUNK_SIZE = 65536 -- 64KB chunks for streaming decrypt
+local STREAM_IO_SIZE = 262144 -- 256KB block buffering for libarchive flash I/O
 local WATERMARK_SCAN_BYTES = 16384
 local FILE_IOFBF = 0
 
 require("ffi/posix_h") -- FILE, fopen, fwrite, fclose, strerror
 pcall(ffi.cdef, "int setvbuf(FILE *stream, char *buf, int mode, size_t size);")
+pcall(ffi.cdef, "int archive_write_set_bytes_per_block(struct archive *, int bytes_per_block);")
 
 local _libarchive = nil
 local function getLibarchive()
@@ -765,23 +767,22 @@ local function writeMemoryEntryToArchive(libarchive, wr, outputPath, entryPath, 
     return writeArchiveBuffer(libarchive, wr, outputPath, content, #content)
 end
 
-local function streamDecryptEntryToArchive(libarchive, rd, wr, outputPath, readBuf, bookKey, noDecomp)
-    local decryptor, decErr = nativecrypto.aes_cbc_decryptor(bookKey, string.rep("\0", 16), true)
-    if not decryptor then
-        return nil, "Failed to create decryptor: " .. tostring(decErr)
+local function streamDecryptEntryToArchive(libarchive, rd, wr, outputPath, readBuf, ioSize, decryptor, zeroIv, held, getInflaterFn, noDecomp)
+    local okReset, resetErr = decryptor:reset(zeroIv)
+    if not okReset then
+        return nil, "Failed to reset decryptor: " .. tostring(resetErr)
     end
 
     local inflater = nil
     if not noDecomp then
         local infErr
-        inflater, infErr = zlib.rawInflater()
+        inflater, infErr = getInflaterFn()
         if not inflater then
             return nil, "Failed to create inflater: " .. tostring(infErr)
         end
     end
 
     local skipRemaining = 16
-    local held = ffi.new("uint8_t[16]")
     local heldLen = 0
 
     local function writeThrough(ptr, len)
@@ -828,7 +829,7 @@ local function streamDecryptEntryToArchive(libarchive, rd, wr, outputPath, readB
 
     local readErr = nil
     while true do
-        local n = tonumber(libarchive.archive_read_data(rd, readBuf, CHUNK_SIZE))
+        local n = tonumber(libarchive.archive_read_data(rd, readBuf, ioSize))
         if not n or n < 0 then
             readErr = "Archive read error while decrypting entry"
             break
@@ -863,8 +864,9 @@ local function streamDecryptEntryToArchive(libarchive, rd, wr, outputPath, readB
     end
 
     if inflater then
-        local infOk = inflater:finalize()
+        local infOk = inflater:isFinished()
         if not readErr and not infOk then
+            inflater:finalize()
             readErr = "Truncated deflate stream"
         end
     end
@@ -880,13 +882,13 @@ local function streamDecryptAdobeEpub(libarchive, inputPath, outputPath, bookKey
     -- Clean up any legacy work directories left by older versions
     pcall(epub.cleanupWorkDirs, 0)
 
-    -- 1. Probe encryption.xml and mimetype via Archiver.Reader
+    -- 1. Single-pass inline probe for encryption.xml, mimetype, and entry count
     local probe = Archiver.Reader:new()
     if not probe:open(inputPath) then
         return nil, probe.err or "Could not open EPUB archive"
     end
-    local encXmlEntry = nil
-    local mimetypeEntry = nil
+    local encryptionXml = nil
+    local mimetype = nil
     local totalFiles = 0
     for entry in probe:iterate() do
         if entry.mode == "file" then
@@ -898,9 +900,9 @@ local function streamDecryptAdobeEpub(libarchive, inputPath, outputPath, bookKey
             end
             local lower = norm:lower()
             if lower == "meta-inf/encryption.xml" then
-                encXmlEntry = entry.path
+                encryptionXml = probe:extractToMemory(entry.path)
             elseif lower == "mimetype" then
-                mimetypeEntry = entry.path
+                mimetype = probe:extractToMemory(entry.path)
             end
         end
     end
@@ -909,9 +911,6 @@ local function streamDecryptAdobeEpub(libarchive, inputPath, outputPath, bookKey
         probe:close()
         return nil, "EPUB read error: " .. tostring(err)
     end
-
-    local encryptionXml = encXmlEntry and probe:extractToMemory(encXmlEntry) or nil
-    local mimetype = mimetypeEntry and probe:extractToMemory(mimetypeEntry) or nil
     probe:close()
 
     if not mimetype or mimetype == "" then
@@ -943,7 +942,7 @@ local function streamDecryptAdobeEpub(libarchive, inputPath, outputPath, bookKey
     end
     libarchive.archive_read_support_format_all(rd)
     libarchive.archive_read_support_filter_all(rd)
-    if libarchive.archive_read_open_filename(rd, inputPath, CHUNK_SIZE) ~= libarchive.ARCHIVE_OK then
+    if libarchive.archive_read_open_filename(rd, inputPath, STREAM_IO_SIZE) ~= libarchive.ARCHIVE_OK then
         local err = formatArchiveWriteError(libarchive, rd, inputPath, "Could not open input EPUB")
         libarchive.archive_free(rd)
         return nil, err
@@ -955,6 +954,7 @@ local function streamDecryptAdobeEpub(libarchive, inputPath, outputPath, bookKey
         libarchive.archive_free(rd)
         return nil, "Could not allocate libarchive writer"
     end
+    pcall(libarchive.archive_write_set_bytes_per_block, wr, STREAM_IO_SIZE)
     if libarchive.archive_write_set_format_by_name(wr, "zip") ~= libarchive.ARCHIVE_OK or
        libarchive.archive_write_open_filename(wr, tmpOut) ~= libarchive.ARCHIVE_OK then
         local err = formatArchiveWriteError(libarchive, wr, tmpOut, "Could not open EPUB writer")
@@ -1008,14 +1008,40 @@ local function streamDecryptAdobeEpub(libarchive, inputPath, outputPath, bookKey
 
     -- 3. Stream all entries in a single pass
     local inEntry = libarchive.archive_entry_new()
-    local readBuf = ffi.new("uint8_t[?]", CHUNK_SIZE)
+    local readBuf = ffi.new("uint8_t[?]", STREAM_IO_SIZE)
+    local heldBuf = ffi.new("uint8_t[16]")
+    local zeroIv = string.rep("\0", 16)
+    local reusableDecryptor, decInitErr = nativecrypto.aes_cbc_decryptor(bookKey, zeroIv, true)
+    local reusableInflater = nil
+    local function getReusableInflater()
+        if reusableInflater then
+            local okR, rErr = reusableInflater:reset()
+            if okR then
+                return reusableInflater
+            end
+            reusableInflater:finalize()
+            reusableInflater = nil
+        end
+        local inf, infErr = zlib.rawInflater()
+        if not inf then
+            return nil, infErr
+        end
+        reusableInflater = inf
+        return reusableInflater
+    end
+
     local hasContainer = false
     local decryptCount = 0
     local forceNoDecompCount = 0
     local processedFiles = 0
+    local progressStep = math.max(8, math.floor((totalFiles > 0 and totalFiles or 80) / 10))
     local streamErr = nil
 
-    while true do
+    if not reusableDecryptor then
+        streamErr = "Failed to create decryptor: " .. tostring(decInitErr)
+    end
+
+    while not streamErr do
         local rc = libarchive.archive_read_next_header2(rd, inEntry)
         if rc == libarchive.ARCHIVE_EOF then
             break
@@ -1084,7 +1110,8 @@ local function streamDecryptAdobeEpub(libarchive, inputPath, outputPath, bookKey
 
                 if isEncDecomp or isEncNoDecomp then
                     local decOk, decErr = streamDecryptEntryToArchive(
-                        libarchive, rd, wr, tmpOut, readBuf, bookKey, isEncNoDecomp
+                        libarchive, rd, wr, tmpOut, readBuf, STREAM_IO_SIZE,
+                        reusableDecryptor, zeroIv, heldBuf, getReusableInflater, isEncNoDecomp
                     )
                     if not decOk then
                         streamErr = "Failed to decrypt " .. tostring(normPath) .. ": " .. tostring(decErr)
@@ -1095,10 +1122,9 @@ local function streamDecryptAdobeEpub(libarchive, inputPath, outputPath, bookKey
                     else
                         decryptCount = decryptCount + 1
                     end
-                    collectgarbage("step", 100)
                 else
                     while true do
-                        local n = tonumber(libarchive.archive_read_data(rd, readBuf, CHUNK_SIZE))
+                        local n = tonumber(libarchive.archive_read_data(rd, readBuf, STREAM_IO_SIZE))
                         if not n or n < 0 then
                             streamErr = "EPUB read error on " .. tostring(normPath)
                             break
@@ -1118,10 +1144,15 @@ local function streamDecryptAdobeEpub(libarchive, inputPath, outputPath, bookKey
                 end
             end
 
-            if totalFiles > 0 and (processedFiles % 4 == 0 or processedFiles == totalFiles) then
+            if totalFiles > 0 and (processedFiles % progressStep == 0 or processedFiles == totalFiles) then
                 reportProgress(0.15 + 0.80 * (processedFiles / totalFiles))
             end
         end
+    end
+
+    if reusableInflater then
+        reusableInflater:finalize()
+        reusableInflater = nil
     end
 
     libarchive.archive_entry_free(inEntry)

@@ -182,13 +182,17 @@ local aes_key = "0123456789abcdef" -- 16-byte AES-128 book key
 local iv1 = "abcdef0123456789"
 local iv2 = "1234567890fedcba"
 
--- Sample chapter with XML + multibyte text (exceeding 64 bytes so multiple blocks + PKCS#7 padding)
+-- Sample chapters with XML + multibyte text (exceeding 64 bytes so multiple blocks + PKCS#7 padding)
 local chapter_plain = '<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Ch 1</title></head><body><p>' .. string.rep("Library loan chapter text! ", 40) .. "</p></body></html>"
+local chapter2_plain = '<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Ch 2</title></head><body><p>' .. string.rep("Second chapter verifying inflater reset! ", 30) .. "</p></body></html>"
 -- Fake valid JPEG cover (exact byte sequence whose end could match or not match PKCS7 byte values)
 local cover_plain = "\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00" .. string.rep("\xAB", 29) .. "\x04\x04\x04\x04\xFF\xD9"
+local page1_plain = "\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00" .. string.rep("\xCD", 64) .. "\xFF\xD9"
 
 local chapter_enc = adeptEncrypt(aes_key, iv1, rawDeflateStored(chapter_plain))
+local chapter2_enc = adeptEncrypt(aes_key, iv2, rawDeflateStored(chapter2_plain))
 local cover_enc = adeptEncrypt(aes_key, iv2, cover_plain)
+local page1_enc = adeptEncrypt(aes_key, iv1, page1_plain)
 
 local opf_xml = [[<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid">
@@ -198,9 +202,11 @@ local opf_xml = [[<?xml version="1.0" encoding="utf-8"?>
   </metadata>
   <manifest>
     <item id="ch1" href="Text/chapter%201.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ch2" href="Text/chapter%202.xhtml" media-type="application/xhtml+xml"/>
     <item id="cover-img" href="Images/cover.jpg" media-type="image/jpeg"/>
+    <item id="page1-img" href="Images/page1.jpg" media-type="image/jpeg"/>
   </manifest>
-  <spine><itemref idref="ch1"/></spine>
+  <spine><itemref idref="ch1"/><itemref idref="ch2"/></spine>
 </package>]]
 
 local container_xml = [[<?xml version="1.0" encoding="UTF-8"?>
@@ -230,6 +236,12 @@ local encryption_xml = [[<?xml version="1.0" encoding="UTF-8"?>
   </enc:EncryptedData>
   <enc:EncryptedData>
     <enc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/>
+    <enc:CipherData>
+      <enc:CipherReference URI="OEBPS/Text/chapter%202.xhtml"/>
+    </enc:CipherData>
+  </enc:EncryptedData>
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/>
     <enc:EncryptionProperties>
       <enc:EncryptionProperty>
         <deenc:Compression Method="0" OriginalLength="]] .. tostring(#cover_plain) .. [["/>
@@ -237,6 +249,17 @@ local encryption_xml = [[<?xml version="1.0" encoding="UTF-8"?>
     </enc:EncryptionProperties>
     <enc:CipherData>
       <enc:CipherReference URI="OEBPS/Images/cover.jpg"/>
+    </enc:CipherData>
+  </enc:EncryptedData>
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/>
+    <enc:EncryptionProperties>
+      <enc:EncryptionProperty>
+        <deenc:Compression Method="0" OriginalLength="]] .. tostring(#page1_plain) .. [["/>
+      </enc:EncryptionProperty>
+    </enc:EncryptionProperties>
+    <enc:CipherData>
+      <enc:CipherReference URI="OEBPS/Images/page1.jpg"/>
     </enc:CipherData>
   </enc:EncryptedData>
 </encryption>]]
@@ -273,7 +296,9 @@ buildEpub(encrypted_epub, "stage_enc", {
     { "META-INF/encryption.xml", encryption_xml },
     { "OEBPS/content.opf", opf_xml },
     { "OEBPS/Text/chapter 1.xhtml", chapter_enc },
+    { "OEBPS/Text/chapter 2.xhtml", chapter2_enc },
     { "OEBPS/Images/cover.jpg", cover_enc },
+    { "OEBPS/Images/page1.jpg", page1_enc },
 })
 
 -- 1. Ephemeral.isAdeptEncrypted ZIP probe (requires iterate() before extractToMemory())
@@ -288,7 +313,7 @@ print("✓ Real ZIP extractEncryptedKeyFromEpub passed")
 -- 3. epub.decryptAdobeEpub full extraction, URL-decoded path match, streaming decrypt+inflate, Compression Method=0, repack & validation
 local dec_ok, dec_err = epub.decryptAdobeEpub(encrypted_epub, decrypted_epub, aes_key)
 assert_true(dec_ok ~= nil, "decryptAdobeEpub failed: " .. tostring(dec_err))
-assert_eq(dec_ok.decryptedEntries, 2, "decryptAdobeEpub should decrypt both chapter and cover")
+assert_eq(dec_ok.decryptedEntries, 4, "decryptAdobeEpub should decrypt both chapters and both images")
 
 -- Inspect decrypted EPUB with Archiver.Reader
 local r = Archiver.Reader:new()
@@ -301,8 +326,10 @@ assert_true(r.err == nil, "Archiver.Reader iterate error: " .. tostring(r.err))
 assert_true(entries["META-INF/rights.xml"] == nil, "META-INF/rights.xml must be removed")
 assert_true(entries["META-INF/encryption.xml"] == nil, "META-INF/encryption.xml must be removed when no non-ADEPT entries remain")
 assert_true(entries["META-INF/container.xml"] ~= nil, "META-INF/container.xml must be preserved")
-assert_eq(r:extractToMemory("OEBPS/Text/chapter 1.xhtml"), chapter_plain, "Decrypted+inflated chapter must match original byte-for-byte")
+assert_eq(r:extractToMemory("OEBPS/Text/chapter 1.xhtml"), chapter_plain, "Decrypted+inflated chapter 1 must match original byte-for-byte")
+assert_eq(r:extractToMemory("OEBPS/Text/chapter 2.xhtml"), chapter2_plain, "Decrypted+inflated chapter 2 must match original byte-for-byte")
 assert_eq(r:extractToMemory("OEBPS/Images/cover.jpg"), cover_plain, "Decrypted Compression=0 cover must match original byte-for-byte")
+assert_eq(r:extractToMemory("OEBPS/Images/page1.jpg"), page1_plain, "Decrypted Compression=0 page1 must match original byte-for-byte")
 r:close()
 
 -- Verify crengine (libs/libkoreader-cre) opens and renders the single-pass streamed EPUB

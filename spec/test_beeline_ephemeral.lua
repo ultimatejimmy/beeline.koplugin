@@ -502,10 +502,78 @@ mock_df_free["/tmp"] = nil
 assert_true(retry_ephem ~= nil, "prepareSession should recover from RAM short write via cache fallback, err: " .. tostring(retry_err))
 assert_true(retry_ephem:find("cache/beeline%.koplugin/ephemeral") ~= nil, "Recovered session should reside in cache dir, got: " .. tostring(retry_ephem))
 assert_eq(#attempted_paths, 2, "Should attempt RAM path first then retry once in cache")
+assert_true(Ephemeral.isAdeptEncrypted(retry_ephem) == false, "isAdeptEncrypted must short-circuit to false for active ephemeral paths")
 Ephemeral.cleanupSession(retry_ephem)
 State.untrackBook(retry_master)
 os.remove(retry_master)
 os.execute("rm -rf /tmp/cache 2>/dev/null")
 print("✓ Large-book cache routing & short-write fallback passed")
+
+-- 14. Warm session cache & cleanupAllSessions
+local warm_master = "/tmp/test_warm_large.epub"
+local f_wm = io.open(warm_master, "wb")
+f_wm:write("PK\x03\x04dummy-warm-master")
+f_wm:close()
+State.trackBook(warm_master, os.time() + 86400, "Warm Book", {
+    is_adept = true,
+    format = "epub",
+    book_key_hex = "00112233445566778899aabbccddeeff",
+})
+local ep1 = Ephemeral._generateEphemeralPath(warm_master, 92 * 1024 * 1024)
+local ep2 = Ephemeral._generateEphemeralPath(warm_master, 92 * 1024 * 1024)
+assert_eq(ep1, ep2, "generateEphemeralPath should be deterministic for cr3cache hits")
+local f_we = io.open(ep1, "wb"); f_we:write("PK\x03\x04warm"); f_we:close()
+Ephemeral._ephem_to_master[ep1] = warm_master
+Ephemeral._master_to_ephem[warm_master] = ep1
+Ephemeral.cleanupAllSessions()
+assert_true(Ephemeral._ephem_to_master[ep1] == nil, "cleanupAllSessions must clear warm sessions")
+assert_true(io.open(ep1, "rb") == nil, "cleanupAllSessions must shred warm session files on exit")
+State.untrackBook(warm_master)
+os.remove(warm_master)
+os.execute("rm -rf /tmp/cache 2>/dev/null")
+print("✓ Deterministic path & warm session cleanupAllSessions passed")
+
+-- 15. Verify DocumentRegistry:openDocument suppresses Opening Book UI toast while user open hooks show it
+do
+    local shown_titles = {}
+    local orig_bui = package.loaded["beeline_ui"]
+    package.loaded["beeline_ui"] = {
+        showProgressToast = function(title)
+            table.insert(shown_titles, title)
+            return { updateProgress = function() end, close = function() end }
+        end,
+    }
+    local ui_master = "/tmp/test_ui_suppression.epub"
+    local f_um = io.open(ui_master, "wb"); f_um:write("PK\x03\x04dummy-master"); f_um:close()
+    State.trackBook(ui_master, os.time() + 86400, "UI Suppression Book", {
+        is_adept = true,
+        format = "epub",
+        book_key_hex = "00112233445566778899aabbccddeeff",
+    })
+    local orig_decrypt = epub_mod.decryptAdobeEpub
+    epub_mod.decryptAdobeEpub = function(_, out_path)
+        local f = io.open(out_path, "wb"); f:write("PK\x03\x04decrypted"); f:close()
+        return true
+    end
+
+    -- DocumentRegistry:openDocument must NOT show Opening Book toast
+    local dr_doc = mock_doc_registry:openDocument(ui_master)
+    assert_true(dr_doc ~= nil, "DocumentRegistry should open ADEPT book")
+    assert_eq(#shown_titles, 0, "DocumentRegistry:openDocument must NOT show Opening Book toast")
+    dr_doc:close()
+
+    -- prepareSession with show_ui = true MUST show Opening Book toast
+    local ui_ephem = Ephemeral.prepareSession(ui_master, { show_ui = true })
+    assert_true(ui_ephem ~= nil, "prepareSession({ show_ui = true }) should succeed")
+    assert_eq(#shown_titles, 1, "prepareSession({ show_ui = true }) must show Opening Book toast")
+    assert_eq(shown_titles[1], "Opening Book", "Toast title should be Opening Book")
+
+    Ephemeral.cleanupAllSessions()
+    epub_mod.decryptAdobeEpub = orig_decrypt
+    package.loaded["beeline_ui"] = orig_bui
+    State.untrackBook(ui_master)
+    os.remove(ui_master)
+    print("✓ DocumentRegistry UI toast suppression vs FileManager UI toast passed")
+end
 
 print("=== ALL EPHEMERAL ADEPT TESTS PASSED ===")

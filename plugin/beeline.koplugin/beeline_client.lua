@@ -33,6 +33,25 @@ local function executeRequest(req)
     if t.socketutil and type(t.socketutil.table_sink) == "function" then
         sink = t.socketutil.table_sink(chunks)
     end
+    if type(req.progress_cb) == "function" and sink then
+        local base_sink = sink
+        local total_bytes = 0
+        local last_reported = 0
+        local PROGRESS_STEP = 65536
+        sink = function(chunk, err)
+            if chunk and chunk ~= "" then
+                total_bytes = total_bytes + #chunk
+                if (total_bytes - last_reported) >= PROGRESS_STEP then
+                    last_reported = total_bytes
+                    pcall(req.progress_cb, total_bytes)
+                end
+            elseif chunk == nil and total_bytes > last_reported then
+                last_reported = total_bytes
+                pcall(req.progress_cb, total_bytes)
+            end
+            return base_sink(chunk, err)
+        end
+    end
 
     local req_spec = {
         url = url,
@@ -218,13 +237,13 @@ function M.fetchInbox(worker_url, device_hash)
 end
 
 --- Downloads encrypted binary envelope for a specific file
-function M.downloadFile(worker_url, device_hash, file_id)
+function M.downloadFile(worker_url, device_hash, file_id, progress_cb)
     if not worker_url or not device_hash or not file_id then
         return nil, "Missing download parameters"
     end
 
     local url = worker_url .. "/api/download?id=" .. tostring(file_id) .. "&device=" .. tostring(device_hash)
-    local resp, err = executeRequest({ url = url, method = "GET" })
+    local resp, err = executeRequest({ url = url, method = "GET", progress_cb = progress_cb })
     if not resp then return nil, err end
 
     if resp.code ~= 200 then

@@ -165,6 +165,10 @@ msgstr "İptal"
 msgid "Check for Incoming Files"
 msgstr "Gelen Dosyaları Kontrol Et"
 
+# en-hash: 2d7adf5b68da9bde9fb1b158998642f7
+msgid "Checking Inbox"
+msgstr ""
+
 # en-hash: d3d2e617335f08df83599665eef8a418
 msgid "Close"
 msgstr "Kapat"
@@ -192,6 +196,10 @@ msgstr "Kod: %s"
 # en-hash: b269d20c229a7467ef26adaac06a886a
 msgid "Configuration Required"
 msgstr "Yapılandırma Gerekli"
+
+# en-hash: d6bb7f1530bff78d6581f223d318ba54
+msgid "Connecting to Beeline…"
+msgstr ""
 
 # en-hash: c2cc7082a89c1ad6631a2f66af5f00c0
 msgid "Connection"
@@ -245,6 +253,14 @@ msgstr "Reddet"
 msgid "Decrypting book…"
 msgstr ""
 
+# en-hash: 5c1038f0a4c89ce877252af7556f4e44
+msgid "Decrypting file %d of %d…"
+msgstr ""
+
+# en-hash: 2e77b646a24275335257cad6813c3ba4
+msgid "Decrypting file…"
+msgstr ""
+
 # en-hash: 0a4b33cc1fc4c21a5e073a500a9d2f92
 msgid "Decryption Failed"
 msgstr "Şifre Çözme Başarısız"
@@ -285,6 +301,18 @@ msgstr "Tüm Tarayıcıların Bağlantısı Kesilsin mi?"
 msgid "Downloaded to Library"
 msgstr "Kütüphaneye İndirildi"
 
+# en-hash: 333738631384ca07eb5b6c1647d48255
+msgid "Downloading Files"
+msgstr ""
+
+# en-hash: ace4d9ac34dddfcbe2f80aa572cead61
+msgid "Downloading file %d of %d…"
+msgstr ""
+
+# en-hash: 33e2a61d79884b8b88e7b43844f8d7e2
+msgid "Downloading file…"
+msgstr ""
+
 # en-hash: 40278f12f281f13013ea838eed1ff3b2
 msgid "Enter full HTTPS endpoint of your Beeline Worker:"
 msgstr "Beeline Worker için tam HTTPS adresini girin:"
@@ -303,6 +331,10 @@ msgstr "Klasör"
 
 # en-hash: d793530575b8b7f3907f6c0fe1e877ef
 msgid "Fulfilling Loan"
+msgstr ""
+
+# en-hash: a15679fe335d9a6d86df3f0661ce3b48
+msgid "Fulfilling Loan (%d/%d)"
 msgstr ""
 
 # en-hash: a1b9b944ced1ef233b011bb55fc6565d
@@ -684,8 +716,4 @@ msgstr "↻  Yeni Kod"
 # en-hash: 6ef462a48ea9f46f6221271a3cf665c0
 msgid "✓ Browser paired! Code used."
 msgstr "✓ Tarayıcı eşleşti! Kod kullanıldı."
-
-# en-hash: 0dc6e60087b7138a47a409ebed611aa9
-msgid "🐝 Checking Beeline inbox…"
-msgstr "🐝 Beeline gelen kutusu kontrol ediliyor…"
 

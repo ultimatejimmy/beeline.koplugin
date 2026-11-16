@@ -738,6 +738,11 @@ function handleWebUi(request) {
       outline: none;
       border-color: var(--primary);
     }
+    .pairing-input[readonly] {
+      opacity: 0.85;
+      cursor: default;
+      border-color: var(--badge-paired-border);
+    }
     .pairing-input::placeholder {
       color: var(--text-muted);
       opacity: 0.55;
@@ -820,15 +825,57 @@ function handleWebUi(request) {
       margin-top: 0.35rem;
     }
     .file-input { display: none; }
-    .file-card {
+    .file-queue-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.775rem;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+    .btn-clear-files {
+      background: none;
+      border: none;
+      color: var(--primary);
+      font-size: 0.75rem;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+    }
+    .btn-clear-files:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .file-list:empty {
       display: none;
+    }
+    .file-card {
+      display: flex;
       background: var(--input-bg);
       border: 1px solid var(--card-border);
       border-radius: 0.65rem;
-      padding: 0.75rem 1rem;
-      margin-bottom: 1.25rem;
+      padding: 0.7rem 0.9rem;
       align-items: center;
       justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .file-card.sent {
+      border-color: var(--badge-paired-border);
+    }
+    .file-card.error {
+      border-color: var(--badge-unpaired-border);
+    }
+    .file-info {
+      min-width: 0;
+      flex: 1;
     }
     .file-name {
       font-size: 0.85rem;
@@ -837,12 +884,21 @@ function handleWebUi(request) {
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 280px;
     }
     .file-size {
       font-size: 0.75rem;
       color: var(--text-muted);
       margin-top: 0.15rem;
+    }
+    .file-status-text {
+      color: var(--primary);
+      font-weight: 500;
+    }
+    .file-card.sent .file-status-text {
+      color: var(--badge-paired-text);
+    }
+    .file-card.error .file-status-text {
+      color: var(--badge-unpaired-text);
     }
     .file-remove {
       background: none;
@@ -850,9 +906,14 @@ function handleWebUi(request) {
       color: var(--text-muted);
       font-size: 1.25rem;
       cursor: pointer;
-      padding: 0.2rem 0.5rem;
+      padding: 0.2rem 0.45rem;
+      flex-shrink: 0;
     }
-    .file-remove:hover { color: var(--error); }
+    .file-remove:hover:not(:disabled) { color: var(--error); }
+    .file-remove:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
     .btn-send {
       width: 100%;
       background: var(--primary);
@@ -943,21 +1004,19 @@ function handleWebUi(request) {
     </div>
 
     <div class="drop-zone disabled" id="dropZone">
-      <div class="drop-zone-text">Drop your ebook or ACSM file here</div>
-      <div class="drop-zone-hint">or tap to select from device (.epub, .pdf, .acsm, .cbz)</div>
-      <input type="file" id="fileInput" class="file-input" accept=".epub,.pdf,.acsm,.cbz,.fb2,.mobi,.txt" disabled>
+      <div class="drop-zone-text">Drop your ebooks or ACSM files here</div>
+      <div class="drop-zone-hint">or tap to select one or more files (.epub, .pdf, .acsm, .cbz)</div>
+      <input type="file" id="fileInput" class="file-input" accept=".epub,.pdf,.acsm,.cbz,.fb2,.mobi,.txt" multiple disabled>
     </div>
 
-    <div class="file-card" id="fileCard">
-      <div class="file-info">
-        <div class="file-name" id="fileName">book.epub</div>
-        <div class="file-size" id="fileSize">1.2 MB</div>
-      </div>
-      <button class="file-remove" id="fileRemove" title="Remove file">&times;</button>
+    <div class="file-queue-header" id="fileQueueHeader" style="display: none;">
+      <span id="fileQueueSummary"></span>
+      <button type="button" class="btn-clear-files" id="clearFilesBtn">Clear all</button>
     </div>
+    <div class="file-list" id="fileList"></div>
 
     <button id="sendBtn" class="btn-send" disabled>
-      <span>Send to KOReader</span>
+      <span id="sendBtnText">Send to KOReader</span>
     </button>
 
     <div class="progress-bar-container" id="progressContainer">
@@ -1006,18 +1065,24 @@ function handleWebUi(request) {
     const btnCheckPair = document.getElementById("btnCheckPair");
     const dropZone = document.getElementById("dropZone");
     const fileInput = document.getElementById("fileInput");
-    const fileCard = document.getElementById("fileCard");
-    const fileName = document.getElementById("fileName");
-    const fileSize = document.getElementById("fileSize");
-    const fileRemove = document.getElementById("fileRemove");
+    const fileQueueHeader = document.getElementById("fileQueueHeader");
+    const fileQueueSummary = document.getElementById("fileQueueSummary");
+    const clearFilesBtn = document.getElementById("clearFilesBtn");
+    const fileList = document.getElementById("fileList");
     const sendBtn = document.getElementById("sendBtn");
+    const sendBtnText = document.getElementById("sendBtnText");
     const statusMsg = document.getElementById("statusMsg");
     const progressContainer = document.getElementById("progressContainer");
     const progressBar = document.getElementById("progressBar");
 
-    let currentFile = null;
+    let queuedFiles = [];
+    let nextFileId = 1;
+    let isUploading = false;
     let isPaired = false;
     let checkTimeout = null;
+    let disconnectConfirmTimer = null;
+    let disconnectConfirmPending = false;
+    let lastVerifyError = false;
 
     function normalizeCode(str) {
       if (!str) return "";
@@ -1032,23 +1097,141 @@ function handleWebUi(request) {
       return str.toUpperCase().replace(/[^A-Z0-9-]/g, "");
     }
 
+    function cleanPairingQueryFromUrl() {
+      try {
+        const url = new URL(window.location.href);
+        let changed = false;
+        if (url.searchParams.has("code")) {
+          url.searchParams.delete("code");
+          changed = true;
+        }
+        if (url.hash) {
+          const rawHash = url.hash.replace(/^#[/]*/, "");
+          const hp = new URLSearchParams(rawHash);
+          if (hp.has("code") || /^[A-Za-z0-9-]{4,12}$/.test(rawHash)) {
+            url.hash = "";
+            changed = true;
+          }
+        }
+        if (changed && window.history && window.history.replaceState) {
+          const qs = url.searchParams.toString();
+          const cleanUrl = url.pathname + (qs ? "?" + qs : "") + url.hash;
+          window.history.replaceState(null, "", cleanUrl);
+        }
+      } catch (_) {}
+    }
+
+    function openSessionDb() {
+      return new Promise((resolve, reject) => {
+        if (typeof indexedDB === "undefined") {
+          return reject(new Error("IndexedDB unavailable"));
+        }
+        const req = indexedDB.open("beeline_store", 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("session")) {
+            db.createObjectStore("session");
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error || new Error("IndexedDB error"));
+      });
+    }
+
+    async function idbGetSession() {
+      try {
+        const db = await openSessionDb();
+        return await new Promise((resolve) => {
+          const tx = db.transaction("session", "readonly");
+          const store = tx.objectStore("session");
+          const getReq = store.get("current");
+          getReq.onsuccess = () => resolve(getReq.result || null);
+          getReq.onerror = () => resolve(null);
+          tx.oncomplete = () => db.close();
+        });
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function idbSetSession(sessionObj) {
+      try {
+        const db = await openSessionDb();
+        await new Promise((resolve) => {
+          const tx = db.transaction("session", "readwrite");
+          const store = tx.objectStore("session");
+          store.put(sessionObj, "current");
+          tx.oncomplete = () => { db.close(); resolve(); };
+          tx.onerror = () => { db.close(); resolve(); };
+        });
+      } catch (_) {}
+    }
+
+    async function idbClearSession() {
+      try {
+        const db = await openSessionDb();
+        await new Promise((resolve) => {
+          const tx = db.transaction("session", "readwrite");
+          const store = tx.objectStore("session");
+          store.delete("current");
+          tx.oncomplete = () => { db.close(); resolve(); };
+          tx.onerror = () => { db.close(); resolve(); };
+        });
+      } catch (_) {}
+    }
+
     function getSavedSession() {
       try {
         const raw = localStorage.getItem("beeline_session");
-        if (raw) return JSON.parse(raw);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.deviceId && parsed.code) return parsed;
+        }
       } catch (_) {}
       return null;
     }
 
-    function saveSession(deviceId, code) {
-      const norm = normalizeCode(code);
-      localStorage.setItem("beeline_session", JSON.stringify({ deviceId, code: norm }));
+    async function loadBestSavedSession() {
+      const local = getSavedSession();
+      if (local) return local;
+      const idb = await idbGetSession();
+      if (idb && idb.deviceId && idb.code) {
+        try {
+          localStorage.setItem("beeline_session", JSON.stringify(idb));
+        } catch (_) {}
+        return idb;
+      }
+      return null;
     }
 
-    function clearSession() {
-      localStorage.removeItem("beeline_session");
+    async function saveSession(deviceId, code) {
+      const norm = normalizeCode(code);
+      const sessionObj = { deviceId, code: norm };
+      try {
+        localStorage.setItem("beeline_session", JSON.stringify(sessionObj));
+      } catch (_) {}
+      await idbSetSession(sessionObj);
+    }
+
+    async function clearSession() {
+      resetDisconnectConfirm();
+      try {
+        localStorage.removeItem("beeline_session");
+      } catch (_) {}
+      await idbClearSession();
       pairingInput.value = "";
       setUnpairedState("Enter pairing code");
+    }
+
+    function resetDisconnectConfirm() {
+      if (disconnectConfirmTimer) {
+        clearTimeout(disconnectConfirmTimer);
+        disconnectConfirmTimer = null;
+      }
+      disconnectConfirmPending = false;
+      if (isPaired) {
+        btnCheckPair.textContent = "Disconnect";
+      }
     }
 
     function getIncomingCode() {
@@ -1069,17 +1252,26 @@ function handleWebUi(request) {
       return null;
     }
 
-    async function checkDeviceStatus(deviceId) {
+    async function checkDeviceStatus(deviceId, options = {}) {
       try {
-        const resp = await fetch("/api/pair?device=" + deviceId);
+        const resp = await fetch("/api/pair?device=" + encodeURIComponent(deviceId));
         const data = await resp.json();
+        lastVerifyError = false;
         if (data.ok && data.paired) {
+          cleanPairingQueryFromUrl();
           setPairedState("Paired with KOReader (Ready)");
+          return true;
         } else {
-          setUnpairedState("Device disconnected on KOReader. Enter new code.");
+          setUnpairedState("Device disconnected on KOReader. Enter new code.", false);
+          return false;
         }
       } catch (err) {
-        setUnpairedState("Could not verify device connection");
+        lastVerifyError = true;
+        if (options.preserveOnNetworkError && isPaired) {
+          return true;
+        }
+        setUnpairedState("Could not verify device connection", true);
+        return false;
       }
     }
 
@@ -1091,7 +1283,7 @@ function handleWebUi(request) {
       pairBadge.className = "pair-badge checking";
       btnCheckPair.style.display = "none";
 
-      const saved = getSavedSession();
+      const saved = await loadBestSavedSession();
       if (saved && saved.code === norm && saved.deviceId) {
         return await checkDeviceStatus(saved.deviceId);
       }
@@ -1107,12 +1299,30 @@ function handleWebUi(request) {
         const data = await resp.json();
 
         if (resp.status === 200 && data.ok && data.deviceId) {
-          saveSession(data.deviceId, norm);
+          await saveSession(data.deviceId, norm);
+          cleanPairingQueryFromUrl();
           setPairedState("Paired with KOReader (Ready)");
-        } else if (resp.status === 409) {
-          setUnpairedState("This code has already been used. Please generate a new code on your KOReader.");
-        } else if (resp.status === 404) {
-          setUnpairedState("Code expired or not found. Check code or tap New Code on KOReader.");
+        } else if (resp.status === 409 || resp.status === 404) {
+          // If this browser already has an active paired session, preserve it instead of
+          // clobbering it with an expired/used QR link or mistyped code.
+          if (saved && saved.deviceId && saved.code) {
+            try {
+              const checkResp = await fetch("/api/pair?device=" + encodeURIComponent(saved.deviceId));
+              const checkData = await checkResp.json();
+              if (checkData.ok && checkData.paired) {
+                pairingInput.value = formatCodeDisplay(saved.code);
+                cleanPairingQueryFromUrl();
+                setPairedState("Paired with KOReader (Ready)");
+                showStatus("Kept existing paired connection (that code was expired or already used).", false);
+                return;
+              }
+            } catch (_) {}
+          }
+          if (resp.status === 409) {
+            setUnpairedState("This code has already been used. Please generate a new code on your KOReader.");
+          } else {
+            setUnpairedState("Code expired or not found. Check code or tap New Code on KOReader.");
+          }
         } else {
           setUnpairedState(data.error || "Pairing failed");
         }
@@ -1121,22 +1331,27 @@ function handleWebUi(request) {
         try {
           const fullHash = await sha256Hex(norm + ":beeline-device-id");
           const devId = fullHash.substring(0, 16);
-          const r = await fetch("/api/pair?device=" + devId);
+          const r = await fetch("/api/pair?device=" + encodeURIComponent(devId));
           const d = await r.json();
           if (d.ok && d.paired) {
-            saveSession(devId, norm);
+            await saveSession(devId, norm);
+            cleanPairingQueryFromUrl();
             return setPairedState("Paired with KOReader (Ready)");
           }
         } catch (_) {}
-        setUnpairedState("Connection error during pairing");
+        setUnpairedState("Connection error during pairing", true);
       }
     }
 
     function setPairedState(message) {
       isPaired = true;
+      lastVerifyError = false;
+      resetDisconnectConfirm();
+      pairingInput.readOnly = true;
+      pairingInput.setAttribute("aria-readonly", "true");
       pairBadge.textContent = message;
       pairBadge.className = "pair-badge paired";
-      btnCheckPair.textContent = "Disconnect / New Code";
+      btnCheckPair.textContent = "Disconnect";
       btnCheckPair.style.display = "inline-block";
       dropZone.classList.remove("disabled");
       fileInput.disabled = false;
@@ -1144,35 +1359,59 @@ function handleWebUi(request) {
       updateSendState();
     }
 
-    function setUnpairedState(message) {
+    function setUnpairedState(message, allowRecheck = false) {
       isPaired = false;
+      resetDisconnectConfirm();
+      pairingInput.readOnly = false;
+      pairingInput.removeAttribute("aria-readonly");
       pairBadge.textContent = message;
       pairBadge.className = "pair-badge unpaired";
       const hasSaved = getSavedSession() !== null;
-      btnCheckPair.textContent = hasSaved ? "Disconnect" : "Re-check";
-      btnCheckPair.style.display = hasSaved ? "inline-block" : "none";
+      if (allowRecheck && hasSaved) {
+        btnCheckPair.textContent = "Re-check";
+        btnCheckPair.style.display = "inline-block";
+      } else {
+        btnCheckPair.textContent = hasSaved ? "Disconnect" : "Re-check";
+        btnCheckPair.style.display = hasSaved ? "inline-block" : "none";
+      }
       dropZone.classList.add("disabled");
       fileInput.disabled = true;
       updateSendState();
     }
 
-    // Initialize state on load
-    const urlCode = getIncomingCode();
-    const savedSession = getSavedSession();
+    async function initPairing() {
+      const urlCode = getIncomingCode();
+      const savedSession = await loadBestSavedSession();
 
-    if (urlCode) {
-      const norm = normalizeCode(urlCode);
-      const display = formatCodeDisplay(norm);
-      pairingInput.value = display;
-      if (norm.length === 6) {
-        claimOrVerifyPairing(norm);
+      if (urlCode) {
+        const norm = normalizeCode(urlCode);
+        const display = formatCodeDisplay(norm);
+        pairingInput.value = display;
+        if (norm.length === 6) {
+          await claimOrVerifyPairing(norm);
+        }
+      } else if (savedSession && savedSession.code) {
+        pairingInput.value = formatCodeDisplay(savedSession.code);
+        await checkDeviceStatus(savedSession.deviceId);
       }
-    } else if (savedSession && savedSession.code) {
-      pairingInput.value = formatCodeDisplay(savedSession.code);
-      checkDeviceStatus(savedSession.deviceId);
     }
 
+    initPairing();
+
+    function handleTabResume() {
+      if (document.hidden || isUploading) return;
+      const saved = getSavedSession();
+      if (saved && saved.deviceId) {
+        checkDeviceStatus(saved.deviceId, { preserveOnNetworkError: true });
+      }
+    }
+    document.addEventListener("visibilitychange", handleTabResume);
+    window.addEventListener("pageshow", (e) => {
+      if (e.persisted) handleTabResume();
+    });
+
     pairingInput.addEventListener("input", (e) => {
+      if (pairingInput.readOnly) return;
       let raw = e.target.value;
       let norm = normalizeCode(raw);
       if (norm.length === 6 && !raw.includes("-")) {
@@ -1189,29 +1428,51 @@ function handleWebUi(request) {
       }
     });
 
-    btnCheckPair.addEventListener("click", () => {
-      const saved = getSavedSession();
-      if (btnCheckPair.textContent.includes("Disconnect") || saved) {
-        clearSession();
+    btnCheckPair.addEventListener("click", async () => {
+      const saved = await loadBestSavedSession();
+      if (btnCheckPair.textContent === "Re-check") {
+        if (saved && saved.deviceId && (lastVerifyError || normalizeCode(pairingInput.value) === saved.code)) {
+          await checkDeviceStatus(saved.deviceId);
+        } else {
+          const norm = normalizeCode(pairingInput.value);
+          if (norm.length === 6) await claimOrVerifyPairing(norm);
+        }
+        return;
+      }
+      if (isPaired) {
+        if (!disconnectConfirmPending) {
+          disconnectConfirmPending = true;
+          btnCheckPair.textContent = "Tap again to disconnect";
+          disconnectConfirmTimer = setTimeout(() => {
+            resetDisconnectConfirm();
+          }, 4000);
+          return;
+        }
+        await clearSession();
+        return;
+      }
+      if (saved) {
+        await clearSession();
       } else {
         const norm = normalizeCode(pairingInput.value);
-        if (norm.length === 6) claimOrVerifyPairing(norm);
+        if (norm.length === 6) await claimOrVerifyPairing(norm);
       }
     });
 
     dropZone.addEventListener("click", () => {
-      if (isPaired) fileInput.click();
+      if (isPaired && !isUploading) fileInput.click();
     });
 
     fileInput.addEventListener("change", (e) => {
-      if (e.target.files && e.target.files[0]) {
-        selectFile(e.target.files[0]);
+      if (e.target.files && e.target.files.length > 0) {
+        addFiles(e.target.files);
       }
+      fileInput.value = "";
     });
 
     ["dragenter", "dragover"].forEach(evt => {
       dropZone.addEventListener(evt, (e) => {
-        if (!isPaired) return;
+        if (!isPaired || isUploading) return;
         e.preventDefault();
         e.stopPropagation();
         dropZone.classList.add("active");
@@ -1228,33 +1489,110 @@ function handleWebUi(request) {
     });
 
     dropZone.addEventListener("drop", (e) => {
-      if (!isPaired) return;
-      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-        selectFile(e.dataTransfer.files[0]);
+      if (!isPaired || isUploading) return;
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        addFiles(e.dataTransfer.files);
       }
     });
 
-    fileRemove.addEventListener("click", () => {
-      currentFile = null;
+    clearFilesBtn.addEventListener("click", () => {
+      if (isUploading) return;
+      queuedFiles = [];
       fileInput.value = "";
-      fileCard.style.display = "none";
-      dropZone.style.display = "block";
+      renderFileQueue();
       updateSendState();
     });
 
-    function selectFile(file) {
-      currentFile = file;
-      fileName.textContent = file.name;
-      fileSize.textContent = formatBytes(file.size);
-      dropZone.style.display = "none";
-      fileCard.style.display = "flex";
+    function addFiles(files) {
+      const existingKeys = new Set(
+        queuedFiles.map(item => item.file.name + ":" + item.file.size + ":" + item.file.lastModified)
+      );
+      for (const file of Array.from(files)) {
+        const key = file.name + ":" + file.size + ":" + file.lastModified;
+        if (existingKeys.has(key)) continue;
+        existingKeys.add(key);
+        queuedFiles.push({
+          id: nextFileId++,
+          file,
+          status: "pending",
+          statusText: "",
+        });
+      }
       hideStatus();
+      renderFileQueue();
       updateSendState();
     }
 
+    function removeQueuedFile(id) {
+      if (isUploading) return;
+      queuedFiles = queuedFiles.filter(item => item.id !== id);
+      renderFileQueue();
+      updateSendState();
+    }
+
+    function renderFileQueue() {
+      fileList.textContent = "";
+      if (queuedFiles.length === 0) {
+        fileQueueHeader.style.display = "none";
+        return;
+      }
+
+      const totalBytes = queuedFiles.reduce((sum, item) => sum + item.file.size, 0);
+      fileQueueSummary.textContent =
+        queuedFiles.length + (queuedFiles.length === 1 ? " file" : " files") +
+        " (" + formatBytes(totalBytes) + ")";
+      fileQueueHeader.style.display = "flex";
+      clearFilesBtn.disabled = isUploading;
+
+      for (const item of queuedFiles) {
+        const card = document.createElement("div");
+        card.className = "file-card" + (item.status === "sent" ? " sent" : item.status === "error" ? " error" : "");
+
+        const info = document.createElement("div");
+        info.className = "file-info";
+
+        const nameEl = document.createElement("div");
+        nameEl.className = "file-name";
+        nameEl.textContent = item.file.name;
+
+        const sizeEl = document.createElement("div");
+        sizeEl.className = "file-size";
+        sizeEl.textContent = formatBytes(item.file.size);
+
+        if (item.statusText) {
+          const sep = document.createTextNode(" · ");
+          const statusSpan = document.createElement("span");
+          statusSpan.className = "file-status-text";
+          statusSpan.textContent = item.statusText;
+          sizeEl.appendChild(sep);
+          sizeEl.appendChild(statusSpan);
+        }
+
+        info.appendChild(nameEl);
+        info.appendChild(sizeEl);
+
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "file-remove";
+        removeBtn.title = "Remove file";
+        removeBtn.textContent = "×";
+        removeBtn.disabled = isUploading;
+        removeBtn.addEventListener("click", () => removeQueuedFile(item.id));
+
+        card.appendChild(info);
+        card.appendChild(removeBtn);
+        fileList.appendChild(card);
+      }
+    }
+
     function updateSendState() {
-      const hasFile = currentFile !== null;
-      sendBtn.disabled = !(isPaired && hasFile);
+      const hasFiles = queuedFiles.length > 0;
+      sendBtn.disabled = !(isPaired && hasFiles && !isUploading);
+      if (!isUploading) {
+        sendBtnText.textContent = queuedFiles.length > 1
+          ? "Send " + queuedFiles.length + " files to KOReader"
+          : "Send to KOReader";
+      }
     }
 
     function formatBytes(bytes) {
@@ -1358,46 +1696,99 @@ function handleWebUi(request) {
         deviceIdToUse = fullHash.substring(0, 16);
       }
 
-      if (!deviceIdToUse || !codeToUse || !currentFile || !isPaired) return;
+      if (!deviceIdToUse || !codeToUse || queuedFiles.length === 0 || !isPaired || isUploading) return;
 
-      sendBtn.disabled = true;
-      progressContainer.style.display = "block";
-      progressBar.style.width = "30%";
+      isUploading = true;
+      fileInput.disabled = true;
+      dropZone.classList.add("disabled");
       hideStatus();
+      progressContainer.style.display = "block";
+      progressBar.style.width = "0%";
+      updateSendState();
+      renderFileQueue();
+
+      const total = queuedFiles.length;
+      let sentCount = 0;
+      let failedCount = 0;
+      let pairingRejected = false;
 
       try {
-        progressBar.style.width = "60%";
-        const encryptedEnvelope = await encryptFile(currentFile, codeToUse);
+        for (let i = 0; i < total; i++) {
+          const item = queuedFiles[i];
+          sendBtnText.textContent = total > 1
+            ? "Sending " + (i + 1) + " of " + total + "..."
+            : "Sending...";
 
-        progressBar.style.width = "80%";
-        const resp = await fetch("/api/upload", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "X-Device-Id": deviceIdToUse,
-          },
-          body: encryptedEnvelope
-        });
+          item.status = "pending";
+          item.statusText = "Encrypting...";
+          renderFileQueue();
+          progressBar.style.width = Math.round(((i + 0.3) / total) * 100) + "%";
 
-        progressBar.style.width = "100%";
-        const result = await resp.json();
+          try {
+            const encryptedEnvelope = await encryptFile(item.file, codeToUse);
 
-        if (resp.ok && result.ok) {
-          showStatus("Sent! File delivered to KOReader. Ready for next file.", false);
-          currentFile = null;
-          fileInput.value = "";
-          fileCard.style.display = "none";
-          dropZone.style.display = "block";
-          sendBtn.textContent = "Send to KOReader";
-          sendBtn.disabled = true;
-        } else {
-          showStatus("Upload rejected: " + (result.error || "Device not paired"), true);
-          sendBtn.disabled = false;
+            item.statusText = "Uploading...";
+            renderFileQueue();
+            progressBar.style.width = Math.round(((i + 0.7) / total) * 100) + "%";
+
+            const resp = await fetch("/api/upload", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/octet-stream",
+                "X-Device-Id": deviceIdToUse,
+              },
+              body: encryptedEnvelope
+            });
+
+            const result = await resp.json();
+            if (resp.ok && result.ok) {
+              item.status = "sent";
+              item.statusText = "Sent";
+              sentCount++;
+            } else {
+              item.status = "error";
+              item.statusText = result.error || "Upload failed";
+              failedCount++;
+              if (resp.status === 403) {
+                pairingRejected = true;
+                showStatus("Upload rejected: " + (result.error || "Device not paired"), true);
+                break;
+              }
+            }
+          } catch (err) {
+            item.status = "error";
+            item.statusText = err.message || "Error";
+            failedCount++;
+          }
+
+          progressBar.style.width = Math.round(((i + 1) / total) * 100) + "%";
+          renderFileQueue();
         }
-      } catch (err) {
-        showStatus("Error: " + (err.message || String(err)), true);
-        sendBtn.disabled = false;
+
+        // Remove successfully sent files from the queue; keep any failed ones for retry
+        queuedFiles = queuedFiles.filter(item => item.status !== "sent");
+
+        if (!pairingRejected) {
+          if (failedCount === 0) {
+            const msg = sentCount === 1
+              ? "Sent! File delivered to KOReader. Ready for next file."
+              : "Sent! " + sentCount + " files delivered to KOReader. Ready for more.";
+            showStatus(msg, false);
+          } else {
+            showStatus(
+              sentCount + " sent, " + failedCount + " failed. Retry or remove failed files.",
+              true
+            );
+          }
+        }
       } finally {
+        isUploading = false;
+        if (isPaired) {
+          fileInput.disabled = false;
+          dropZone.classList.remove("disabled");
+        }
+        renderFileQueue();
+        updateSendState();
         setTimeout(() => {
           progressContainer.style.display = "none";
           progressBar.style.width = "0%";

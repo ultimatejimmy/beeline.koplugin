@@ -33,6 +33,7 @@ local _ephem_to_master = {}
 local _master_to_ephem = {}
 local _ephem_refs = {}
 local _reader_owned = {}
+local _warm_cached = {}
 local _hooks_installed = false
 
 local EPHEMERAL_RAM_HEADROOM_BYTES = 16 * 1024 * 1024 -- keep >= 16 MB free on /tmp tmpfs
@@ -181,7 +182,15 @@ local function getEphemeralDir(required_bytes, master_path)
     return "/tmp"
 end
 
---- Generates a unique ephemeral file path
+local function deterministicHashHex(str)
+    local h = 5381
+    for i = 1, #str do
+        h = (h * 33 + str:byte(i)) % 0x100000000
+    end
+    return string.format("%08x", h)
+end
+
+--- Generates a deterministic ephemeral file path (preserves KOReader cr3cache hits across sessions)
 local function generateEphemeralPath(master_path, required_bytes, force_dir)
     local dir = force_dir or getEphemeralDir(required_bytes, master_path)
     local filename = master_path and (master_path:match("([^/\\]+)$") or "book.epub") or "book.epub"
@@ -192,10 +201,16 @@ local function generateEphemeralPath(master_path, required_bytes, force_dir)
     -- Sanitize filesystem-hostile characters while keeping book title readable
     base = base:gsub('[/\\:*?"<>|]', "_")
 
-    -- Keep a short hex salt to guarantee uniqueness if opened multiple times concurrently
+    local hash_hex = deterministicHashHex(tostring(master_path or "") .. ":" .. tostring(required_bytes or 0))
+    local candidate = string.format("%s/bln_ephem_%s_%s%s", dir, base, hash_hex, ext)
+    if not _ephem_to_master[candidate] then
+        return candidate
+    end
+
+    -- Fallback salt only if the deterministic path is already actively open
     math.randomseed(os.time() + math.floor(os.clock() * 100000))
     local rand_hex = string.format("%04x", math.random(0, 0xFFFF))
-    return string.format("%s/bln_ephem_%s_%s%s", dir, base, rand_hex, ext)
+    return string.format("%s/bln_ephem_%s_%s_%s%s", dir, base, hash_hex, rand_hex, ext)
 end
 
 --- Shreds and unlinks a file (wipes first blocks before removing)
@@ -317,6 +332,7 @@ end
 --- Checks whether a file on disk is ADEPT-encrypted (EPUB or PDF)
 function M.isAdeptEncrypted(file_path)
     if not file_path or file_path == "" then return false end
+    if M.isEphemeralPath(file_path) then return false end
     if lfs.attributes(file_path, "mode") ~= "file" then return false end
 
     -- 1. Check if tracked in Beeline State
@@ -403,7 +419,7 @@ end
 -- ---------------------------------------------------------------------------
 
 --- Decrypts master book into volatile RAM (/tmp) or cache and registers reading session
-function M.prepareSession(master_path)
+function M.prepareSession(master_path, opts)
     if not master_path or master_path == "" then
         return nil, "No master path provided"
     end
@@ -449,25 +465,28 @@ function M.prepareSession(master_path)
 
     local prog_toast = nil
     local status_msg = nil
-    local ok_bui, BeelineUI = pcall(require, plugin_path .. "beeline_ui")
-    if not ok_bui or not BeelineUI then
-        ok_bui, BeelineUI = pcall(require, "beeline_ui")
-    end
+    local show_ui = (opts and opts.show_ui == true)
     local ok_uim, UIManager = pcall(require, "ui/uimanager")
-    if ok_bui and BeelineUI and type(BeelineUI.showProgressToast) == "function" then
-        pcall(function()
-            prog_toast = BeelineUI.showProgressToast(_("Opening Book"), book_title, "bee", 0.05)
-        end)
-    else
-        local ok_im, InfoMessage = pcall(require, "ui/widget/infomessage")
-        if ok_uim and ok_im and UIManager and InfoMessage and type(UIManager.show) == "function" then
+    if show_ui then
+        local ok_bui, BeelineUI = pcall(require, plugin_path .. "beeline_ui")
+        if not ok_bui or not BeelineUI then
+            ok_bui, BeelineUI = pcall(require, "beeline_ui")
+        end
+        if ok_bui and BeelineUI and type(BeelineUI.showProgressToast) == "function" then
             pcall(function()
-                status_msg = InfoMessage:new{ text = _("Decrypting book…"), timeout = 0 }
-                UIManager:show(status_msg)
-                if type(UIManager.forceRePaint) == "function" then
-                    UIManager:forceRePaint()
-                end
+                prog_toast = BeelineUI.showProgressToast(_("Opening Book"), book_title, "bee", 0.05)
             end)
+        else
+            local ok_im, InfoMessage = pcall(require, "ui/widget/infomessage")
+            if ok_uim and ok_im and UIManager and InfoMessage and type(UIManager.show) == "function" then
+                pcall(function()
+                    status_msg = InfoMessage:new{ text = _("Decrypting book…"), timeout = 0 }
+                    UIManager:show(status_msg)
+                    if type(UIManager.forceRePaint) == "function" then
+                        UIManager:forceRePaint()
+                    end
+                end)
+            end
         end
     end
 
@@ -561,6 +580,9 @@ function M.prepareSession(master_path)
     -- Register session mappings
     _ephem_to_master[temp_path]   = master_path
     _master_to_ephem[master_path] = temp_path
+    if required_bytes > MAX_RAM_EPHEMERAL_BYTES and not isRamPath(temp_path, dirs.cache) then
+        _warm_cached[temp_path] = true
+    end
 
     logger.info("beeline_ephemeral: session ready at " .. tostring(temp_path))
     return temp_path
@@ -589,11 +611,24 @@ function M.cleanupSession(path)
         _ephem_to_master[temp_path] = nil
         _ephem_refs[temp_path] = nil
         _reader_owned[temp_path] = nil
+        _warm_cached[temp_path] = nil
     end
     if master_path then
         M._last_master_path = master_path
         _master_to_ephem[master_path] = nil
     end
+end
+
+--- Terminates all active and warm-cached ephemeral sessions (called on KOReader exit)
+function M.cleanupAllSessions()
+    local to_clean = {}
+    for temp_path in pairs(_ephem_to_master) do
+        table.insert(to_clean, temp_path)
+    end
+    for _, temp_path in ipairs(to_clean) do
+        M.cleanupSession(temp_path)
+    end
+    return M.cleanupAllOrphans()
 end
 
 -- ---------------------------------------------------------------------------
@@ -697,7 +732,7 @@ function M.installHooks()
         local orig_fm_openFile = FileManager.openFile
         FileManager.openFile = function(self_fm, file, provider, doc_caller_callback, aux_caller_callback, after_open_callback)
             if file and State.getDrmKeepEncrypted() and M.isAdeptEncrypted(file) then
-                local temp_file, err = M.prepareSession(file)
+                local temp_file, err = M.prepareSession(file, { show_ui = true })
                 if temp_file then
                     _reader_owned[temp_file] = true
                     return orig_fm_openFile(self_fm, temp_file, provider, doc_caller_callback, aux_caller_callback, after_open_callback)
@@ -798,7 +833,7 @@ function M.installHooks()
         local orig_openDocument = DocumentRegistry.openDocument
         DocumentRegistry.openDocument = function(self_dr, file, provider)
             if file and State.getDrmKeepEncrypted() and M.isAdeptEncrypted(file) then
-                local temp_file, err = M.prepareSession(file)
+                local temp_file, err = M.prepareSession(file, { show_ui = false })
                 if temp_file then
                     local doc, open_err = orig_openDocument(self_dr, temp_file, provider)
                     if not doc then
@@ -850,7 +885,7 @@ function M.installHooks()
                 self_rui = ReaderUI
             end
             if file and State.getDrmKeepEncrypted() and M.isAdeptEncrypted(file) then
-                local temp_file, err = M.prepareSession(file)
+                local temp_file, err = M.prepareSession(file, { show_ui = true })
                 if temp_file then
                     _reader_owned[temp_file] = true
                     return orig_showReader(self_rui, temp_file, provider, seamless, is_provider_forced, after_open_callback)
@@ -873,7 +908,7 @@ function M.installHooks()
             local orig_switchDocument = ReaderUI.switchDocument
             ReaderUI.switchDocument = function(self_rui, file, ...)
                 if file and State.getDrmKeepEncrypted() and M.isAdeptEncrypted(file) then
-                    local temp_file, err = M.prepareSession(file)
+                    local temp_file, err = M.prepareSession(file, { show_ui = true })
                     if temp_file then
                         _reader_owned[temp_file] = true
                         return orig_switchDocument(self_rui, temp_file, ...)
@@ -906,7 +941,11 @@ function M.installHooks()
             end
             local res = orig_onClose(self_rui, full_refresh)
             if current_file and M.isEphemeralPath(current_file) then
-                M.cleanupSession(current_file)
+                if _warm_cached[current_file] then
+                    logger.info("beeline_ephemeral: keeping large book session warm in cache: " .. tostring(current_file))
+                else
+                    M.cleanupSession(current_file)
+                end
             end
             return res
         end

@@ -13,7 +13,7 @@ return {
     name        = "beeline",
     fullname    = "Beeline",
     description = _("Send ebook files and ACSM tokens wirelessly and securely to KOReader."),
-    version = "26.11.18",
+    version = "26.11.18.1",
     author      = "Beeline",
     license     = "GPLv3",
 }

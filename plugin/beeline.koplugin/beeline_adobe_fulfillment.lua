@@ -762,6 +762,7 @@ function fulfillment.process(acsmPath, outputPath, creds, deviceUUID, fingerprin
             format = isPdf and "pdf" or "epub",
             encrypted_key = result.encryptedKey,
             book_key_hex = hexKey,
+            license_token_xml = result.licenseTokenXml,
         }
 
         if result.notifyURLs and #result.notifyURLs > 0 then
@@ -780,6 +781,13 @@ function fulfillment.process(acsmPath, outputPath, creds, deviceUUID, fingerprin
             response = result.response,
             trackedExtra = trackedExtra,
         }
+    end
+
+    local coverData, coverExt
+    if isEpub then
+        pcall(function()
+            coverData, coverExt = epub.extractCoverImage(tmpFile, bookKey)
+        end)
     end
 
     local decryptedInfo, decryptErr
@@ -805,6 +813,15 @@ function fulfillment.process(acsmPath, outputPath, creds, deviceUUID, fingerprin
     decryptedInfo = dec_res
     logger.info("[ACSM] fulfillment.process: book decrypted to", outputPath)
 
+    pcall(function()
+        local DRM = require("beeline_drm")
+        local meta = DRM.parseAcsmMetadata(acsmPath)
+        local ok_eph, Ephemeral = pcall(require, "beeline_ephemeral")
+        if ok_eph and Ephemeral and Ephemeral.populateSidecar then
+            Ephemeral.populateSidecar(outputPath, meta, coverData, coverExt)
+        end
+    end)
+
     if result.notifyURLs and #result.notifyURLs > 0 then
         if progress_fn then pcall(progress_fn, "finalize") end
         for _, notifyURL in ipairs(result.notifyURLs) do
@@ -818,6 +835,10 @@ function fulfillment.process(acsmPath, outputPath, creds, deviceUUID, fingerprin
         decryptedEntries = decryptedInfo.decryptedEntries or decryptedInfo.decryptedObjects,
         remainingEncryptionXml = decryptedInfo.remainingEncryptionXml,
         response = result.response,
+        trackedExtra = {
+            format = isPdf and "pdf" or "epub",
+            license_token_xml = result.licenseTokenXml,
+        },
     }
 end
 

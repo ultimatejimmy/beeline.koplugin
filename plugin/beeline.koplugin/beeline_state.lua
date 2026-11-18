@@ -527,6 +527,17 @@ function M.setDrmDefaultLoanDays(days)
     M.saveSettings(s)
 end
 
+function M.getLoansViewMode()
+    local s = M.loadSettings()
+    return (s.loans_view_mode == "cover") and "cover" or "list"
+end
+
+function M.setLoansViewMode(mode)
+    local s = M.loadSettings()
+    s.loans_view_mode = (mode == "cover") and "cover" or "list"
+    M.saveSettings(s)
+end
+
 function M.getDrmDeleteAcsmAfter()
     -- Always delete ACSM after fulfillment (automatic, not configurable)
     return true

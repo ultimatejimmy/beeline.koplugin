@@ -5,6 +5,10 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+# en-hash: 14c1ebe845e25242267c5aa563a56110
+msgid "%d active ›"
+msgstr "%d attivi ›"
+
 # en-hash: f8182c2da85564a8f308c3e627944a72
 msgid "%d books added to your library"
 msgstr "%d libri aggiunti alla tua libreria"
@@ -17,9 +21,9 @@ msgstr "%d libri trovati in questa cartella"
 msgid "%d browser(s) paired"
 msgstr "%d browser associato/i"
 
-# en-hash: 9c7636fb7236f7556b646d7ac61c6be7
-msgid "%d days ›"
-msgstr "%d giorni ›"
+# en-hash: 4b0b097f9082388e7883468976c77e60
+msgid "%d days left"
+msgstr "%d giorni rimanenti"
 
 # en-hash: 1e74befcffb900933e47199fa5151e82
 msgid "%s\n%s"
@@ -36,6 +40,10 @@ msgstr "+ Nuovo"
 # en-hash: d28fdd75f93893891fb2d7e3b40683de
 msgid ".. (Parent Folder)"
 msgstr ".. (Cartella superiore)"
+
+# en-hash: f1a9ffba029332c15ee4a50d7dec57a3
+msgid "1 day left"
+msgstr "1 giorno rimanente"
 
 # en-hash: 2df82b37aebd0d97a8b30d11250695b0
 msgid "1. On phone/PC browser open:"
@@ -73,6 +81,10 @@ msgstr "Evasione ACSM non riuscita"
 msgid "Accept"
 msgstr "Accetta"
 
+# en-hash: da14277878cba0cd821016b12566e861
+msgid "Active Loans"
+msgstr "Prestiti attivi"
+
 # en-hash: 2f4c8a9c912b2baed6e4c67de9367a1b
 msgid "All browsers disconnected. New code: %s"
 msgstr "Tutti i browser disconnessi. Nuovo codice: %s"
@@ -80,6 +92,10 @@ msgstr "Tutti i browser disconnessi. Nuovo codice: %s"
 # en-hash: d5a9446b9c5212716b05170a7942ff7b
 msgid "Anonymous (Default)"
 msgstr "Anonimo (Predefinito)"
+
+# en-hash: a517747c3d12f99244ae598910d979c5
+msgid "Author"
+msgstr "Autore"
 
 # en-hash: 75729e957a6d4bdabddf0c45ba344362
 msgid "Authorization Failed"
@@ -121,6 +137,10 @@ msgstr "Impostazioni Beeline"
 msgid "Beeline can fulfill your library loans and purchased books on-device into EPUB or PDF.\n\n• For your personal use and your own loans/purchases only.\n• Fulfills directly on-device using Adobe / ByteBooks ADEPT protocols.\n• Expired loans are automatically cleaned up 1 day after expiry.\n\nDo you want to enable on-device ACSM fulfillment?"
 msgstr "Beeline può elaborare i prestiti bibliografici e i libri acquistati direttamente sul dispositivo in formato EPUB o PDF.\n\n• Solo per uso personale e per i tuoi prestiti/acquisti.\n• Elaborazione diretta sul dispositivo tramite protocolli ADEPT Adobe / ByteBooks.\n• I prestiti scaduti vengono eliminati automaticamente 1 giorno dopo la scadenza.\n\nVuoi abilitare l'elaborazione ACSM sul dispositivo?"
 
+# en-hash: 53a4e94b0c451b3805f5410456b13ba4
+msgid "Beeline · Loans"
+msgstr "Beeline · Prestiti"
+
 # en-hash: 17f3f113aec71ebf22b6c1a4dee1e141
 msgid "Beeline: Check for Files"
 msgstr "Beeline: Controlla file"
@@ -155,7 +175,7 @@ msgstr "Attivazione ByteBooks riuscita!"
 
 # en-hash: 7c83f6b6e3255aa7ab7d2240b9e4f737
 msgid "ByteBooks allows the same .acsm file to be read on multiple devices."
-msgstr ""
+msgstr "ByteBooks consente di leggere lo stesso file .acsm su più dispositivi."
 
 # en-hash: ea4788705e6873b424c65e91c2846b19
 msgid "Cancel"
@@ -167,7 +187,7 @@ msgstr "Controlla file in arrivo"
 
 # en-hash: 2d7adf5b68da9bde9fb1b158998642f7
 msgid "Checking Inbox"
-msgstr ""
+msgstr "Controllo posta in arrivo"
 
 # en-hash: d3d2e617335f08df83599665eef8a418
 msgid "Close"
@@ -199,7 +219,7 @@ msgstr "Configurazione richiesta"
 
 # en-hash: d6bb7f1530bff78d6581f223d318ba54
 msgid "Connecting to Beeline…"
-msgstr ""
+msgstr "Connessione a Beeline in corso…"
 
 # en-hash: c2cc7082a89c1ad6631a2f66af5f00c0
 msgid "Connection"
@@ -251,27 +271,19 @@ msgstr "Rifiuta"
 
 # en-hash: 4f5be46ff93ccc626e77648e002df6ef
 msgid "Decrypting book…"
-msgstr ""
+msgstr "Decrittazione del libro in corso…"
 
 # en-hash: 5c1038f0a4c89ce877252af7556f4e44
 msgid "Decrypting file %d of %d…"
-msgstr ""
+msgstr "Decrittazione del file %d di %d in corso…"
 
 # en-hash: 2e77b646a24275335257cad6813c3ba4
 msgid "Decrypting file…"
-msgstr ""
+msgstr "Decrittazione del file in corso…"
 
 # en-hash: 0a4b33cc1fc4c21a5e073a500a9d2f92
 msgid "Decryption Failed"
 msgstr "Decrittazione non riuscita"
-
-# en-hash: 35a125c4e45de54fa335a3c9b9ce6991
-msgid "Default Loan Duration (Days)"
-msgstr "Durata prestito predefinita (giorni)"
-
-# en-hash: 4d052c2fc5c4fa9b49b9c80b2ce8842a
-msgid "Default Loan Expiry"
-msgstr "Scadenza prestito predefinita"
 
 # en-hash: 5504412a54be68ca9d57aa33107e7050
 msgid "Destination Inbox"
@@ -303,19 +315,35 @@ msgstr "Scaricato nella libreria"
 
 # en-hash: 333738631384ca07eb5b6c1647d48255
 msgid "Downloading Files"
-msgstr ""
+msgstr "Download dei file"
 
 # en-hash: ace4d9ac34dddfcbe2f80aa572cead61
 msgid "Downloading file %d of %d…"
-msgstr ""
+msgstr "Download del file %d di %d in corso…"
 
 # en-hash: 33e2a61d79884b8b88e7b43844f8d7e2
 msgid "Downloading file…"
-msgstr ""
+msgstr "Download del file in corso…"
+
+# en-hash: 56d2709b7bfe9e4905df09bca8dd98e8
+msgid "Due %s"
+msgstr "Scadenza %s"
+
+# en-hash: 14c841eea7774b78caf79c58989f9625
+msgid "Due Date"
+msgstr "Data di scadenza"
 
 # en-hash: 40278f12f281f13013ea838eed1ff3b2
 msgid "Enter full HTTPS endpoint of your Beeline Worker:"
 msgstr "Inserisci l'endpoint HTTPS completo del tuo Beeline Worker:"
+
+# en-hash: 24fe48030f7d3097d5882535b04c3fa8
+msgid "Expired"
+msgstr "Scaduto"
+
+# en-hash: 08e250ed5d94333a05e55dfa6482c4c4
+msgid "Expires today"
+msgstr "Scade oggi"
 
 # en-hash: 96310b2cf48706c28110688622ac2cf2
 msgid "Failed to create folder."
@@ -329,13 +357,17 @@ msgstr "File ricevuto!"
 msgid "Folder"
 msgstr "Cartella"
 
+# en-hash: 520d0db389f362bf79ef56ca0af3dcab
+msgid "Format"
+msgstr "Formato"
+
 # en-hash: d793530575b8b7f3907f6c0fe1e877ef
 msgid "Fulfilling Loan"
-msgstr ""
+msgstr "Completamento prestito"
 
 # en-hash: a15679fe335d9a6d86df3f0661ce3b48
 msgid "Fulfilling Loan (%d/%d)"
-msgstr ""
+msgstr "Completamento prestito (%d/%d)"
 
 # en-hash: a1b9b944ced1ef233b011bb55fc6565d
 msgid "Fulfillment Failed"
@@ -369,6 +401,14 @@ msgstr "Mantiene il Wi-Fi attivo ogni 30s; aumenterà notevolmente il consumo de
 msgid "Library Loans"
 msgstr "Prestiti della libreria"
 
+# en-hash: 9ad81a8f8a5c7a6ce9e1ba9bb4759391
+msgid "Loan"
+msgstr "Prestito"
+
+# en-hash: 3f74da5e6e02f12c5208e50c114526f1
+msgid "Loan Details"
+msgstr "Dettagli prestito"
+
 # en-hash: 25389d0a386cb05638cb2e4d85e0d6f3
 msgid "Loan Token Expired"
 msgstr "Token di prestito scaduto"
@@ -379,7 +419,7 @@ msgstr "Token di prestito ricevuto. Apri Beeline nel menu Strumenti per completa
 
 # en-hash: 4eb9416512f9df832bdb97653a207853
 msgid "Make sure you have registered or migrated your Adobe ID at https://dtsbytebooks.com/transition-help using the exact same lowercase email."
-msgstr ""
+msgstr "Assicurati di aver registrato o migrato il tuo Adobe ID su https://dtsbytebooks.com/transition-help usando esattamente la stessa email in minuscolo."
 
 # en-hash: 5148905edb46ca87df979cbb369c403d
 msgid "New Folder"
@@ -393,6 +433,14 @@ msgstr "Nuovo codice di associazione: %s"
 msgid "Next"
 msgstr "Avanti"
 
+# en-hash: 2d688f4d101a8d1fcb5672e879ffed68
+msgid "Next ›"
+msgstr "Avanti ›"
+
+# en-hash: 7fec1d8b5be5a3649c513c99b0b8e306
+msgid "No active library loans.\n\nFulfilled library loans with an expiration date will appear here. Purchased books do not expire."
+msgstr "Nessun prestito bibliotecario attivo.\n\nI prestiti bibliotecari evasi con una data di scadenza appariranno qui. I libri acquistati non scadono."
+
 # en-hash: 0c33c65f26463f52d4420411a94d609d
 msgid "No browsers paired"
 msgstr "Nessun browser associato"
@@ -405,9 +453,17 @@ msgstr "Nessun file in arrivo trovato."
 msgid "No subfolders in this directory.\nTap 'Select Folder' below to use it, or '+ New' to create a subfolder."
 msgstr "Nessuna sottocartella in questa directory.\nTocca 'Seleziona cartella' in basso per usarla, o '+ Nuova' per creare una sottocartella."
 
+# en-hash: 327d9872a770258ba445cab395db8187
+msgid "None ›"
+msgstr "Nessuno ›"
+
 # en-hash: e0aa021e21dddbd6d8cecec71e9cf564
 msgid "OK"
 msgstr "OK"
+
+# en-hash: f5ac36a6d8af47f34aeedf97baf66fed
+msgid "Open Book"
+msgstr "Apri libro"
 
 # en-hash: 49f9895dcd7b66149ea6e813d4d49fd8
 msgid "Open Folder"
@@ -419,7 +475,7 @@ msgstr "Apri ora"
 
 # en-hash: 5a047bb1ebacf61135d5fd25a07c6c6b
 msgid "Opening Book"
-msgstr ""
+msgstr "Apertura libro"
 
 # en-hash: b8065ad2628f1f82f3167af0947b3e43
 msgid "Page %d of %d"
@@ -428,10 +484,6 @@ msgstr "Pagina %d di %d"
 # en-hash: fa4382679c51d9bab97e3643e220b3f7
 msgid "Please configure your Pairing Code and Worker URL in Beeline Settings before checking for files."
 msgstr "Configura il codice di associazione e l'URL del Worker nelle impostazioni di Beeline prima di cercare file."
-
-# en-hash: 6be06f77fcc15057b556cdcc2a2d0578
-msgid "Please enter a valid number of days (1-365)"
-msgstr "Inserisci un numero di giorni valido (1-365)"
 
 # en-hash: b01c670da5a9ff93d7bbbf7df96c022e
 msgid "QR code unavailable.\nPlease open in browser:\n"
@@ -491,7 +543,7 @@ msgstr "Accedi a ByteBooks"
 
 # en-hash: b6679baf82534b5da91a135431c6f90c
 msgid "Sign in with your ByteBooks account (https://dtsbytebooks.com). Legacy Adobe IDs must be migrated or registered at dtsbytebooks.com first."
-msgstr ""
+msgstr "Accedi con il tuo account ByteBooks (https://dtsbytebooks.com). I vecchi Adobe ID devono prima essere migrati o registrati su dtsbytebooks.com."
 
 # en-hash: f8f280b167bea895f2b977d60fcad6a6
 msgid "Test & Save"
@@ -509,9 +561,17 @@ msgstr "Questo prestito è già stato evaso da un altro utente o dispositivo.\n(
 msgid "This will revoke all currently connected phones and computers. They will need a new pairing code to send books."
 msgstr "Questa operazione revocherà tutti i telefoni e computer attualmente connessi. Avranno bisogno di un nuovo codice di abbinamento per inviare libri."
 
+# en-hash: b78a3223503896721cca1303f776159b
+msgid "Title"
+msgstr "Titolo"
+
 # en-hash: 761a996d78e8555c48f6b526f7d1d993
 msgid "Token was already fulfilled on another device."
 msgstr "Il token è già stato evaso su un altro dispositivo."
+
+# en-hash: 3ff03eb2bab0a1640ae2a6d4bc91b100
+msgid "Unknown Title"
+msgstr "Titolo sconosciuto"
 
 # en-hash: 5d90aaf88429e98900e1b6892c838558
 msgid "Valid for %d min • Browsers stay paired permanently"
@@ -629,6 +689,14 @@ msgstr "Accedi"
 msgid "btn_test_save"
 msgstr "Testa e salva"
 
+# en-hash: 8b9c2bba829069d84f1e77c3f25cb5ca
+msgid "loan"
+msgstr "prestito"
+
+# en-hash: f806527a4b4ecb554edad98174334a70
+msgid "loans"
+msgstr "prestiti"
+
 # en-hash: 235a124c540b6c55544f00e5410cd04d
 msgid "menu_beeline"
 msgstr "Beeline"
@@ -708,6 +776,10 @@ msgstr "Prestiti bibliotecari"
 # en-hash: 25a62005e5c674d743a61a895c8b5528
 msgid "section_relay_storage"
 msgstr "Relay e archiviazione"
+
+# en-hash: 57adda7dedc1a318f3bb06fd005867dc
+msgid "‹ Prev"
+msgstr "‹ Prec"
 
 # en-hash: a464c66c32987b168b831b97091fb0a7
 msgid "↻  New Code"

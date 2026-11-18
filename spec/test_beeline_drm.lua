@@ -182,16 +182,41 @@ assert_eq(meta.format, "application/epub+zip", "Format match")
 assert_eq(meta.duration, 1209600, "Duration match (14 days)")
 print("✓ ACSM metadata parsing passed")
 
--- 2. Expiry calculation with duration and fallback
+-- 2. Expiry calculation with duration, until, and purchase (no expiry)
 local exp = DRM.extractLoanExpiry(meta)
 assert_true(type(exp) == "number" and exp > 0, "Expiry timestamp should be valid number")
 
-local fallback_meta = { title = "No duration" }
-local fallback_exp = DRM.extractLoanExpiry(fallback_meta, 21)
+local until_license_xml = [[
+<licenseToken xmlns="http://ns.adobe.com/adept">
+  <permissions>
+    <display>
+      <until>2026-12-01T23:59:59Z</until>
+    </display>
+  </permissions>
+</licenseToken>
+]]
+local until_exp = DRM.extractLoanExpiry({ title = "Until Loan" }, until_license_xml)
+assert_true(type(until_exp) == "number" and until_exp > 0, "Expiry timestamp from <until> should be valid number")
+
+local purchase_acsm = [[
+<fulfillmentToken fulfillmentType="buy" auth="user" xmlns="http://ns.adobe.com/adept">
+  <resourceItemInfo>
+    <resource>urn:uuid:00000000-0000-0000-0000-000000000001</resource>
+    <metadata>
+      <dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">Purchased Book</dc:title>
+    </metadata>
+    <licenseToken>
+      <permissions>
+        <display/>
+      </permissions>
+    </licenseToken>
+  </resourceItemInfo>
+</fulfillmentToken>
+]]
+local purchase_exp = DRM.extractLoanExpiry(purchase_acsm)
+assert_eq(purchase_exp, nil, "Purchased ACSM without duration/until should have nil expiry")
 local now = os.time()
-local diff_days = math.floor((fallback_exp - now + 5) / 86400)
-assert_eq(diff_days, 21, "Fallback expiry should be default days")
-print("✓ Expiry calculation & fallback passed")
+print("✓ Expiry calculation (duration, until, and purchase nil) passed")
 
 -- 3. Path derivation
 local path = DRM.deriveFinalBookPath("/tmp", meta)

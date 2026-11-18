@@ -5,6 +5,9 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+msgid "%d active ›"
+msgstr "%d active ›"
+
 msgid "%d books added to your library"
 msgstr "%d books added to your library"
 
@@ -14,8 +17,8 @@ msgstr "%d books found in this folder"
 msgid "%d browser(s) paired"
 msgstr "%d browser(s) paired"
 
-msgid "%d days ›"
-msgstr "%d days ›"
+msgid "%d days left"
+msgstr "%d days left"
 
 msgid "%s\n%s"
 msgstr "%s\n%s"
@@ -28,6 +31,9 @@ msgstr "+ New"
 
 msgid ".. (Parent Folder)"
 msgstr ".. (Parent Folder)"
+
+msgid "1 day left"
+msgstr "1 day left"
 
 msgid "1. On phone/PC browser open:"
 msgstr "1. On phone/PC browser open:"
@@ -56,11 +62,17 @@ msgstr "ACSM Fulfillment Failed"
 msgid "Accept"
 msgstr "Accept"
 
+msgid "Active Loans"
+msgstr "Active Loans"
+
 msgid "All browsers disconnected. New code: %s"
 msgstr "All browsers disconnected. New code: %s"
 
 msgid "Anonymous (Default)"
 msgstr "Anonymous (Default)"
+
+msgid "Author"
+msgstr "Author"
 
 msgid "Authorization Failed"
 msgstr "Authorization Failed"
@@ -91,6 +103,9 @@ msgstr "Beeline Settings"
 
 msgid "Beeline can fulfill your library loans and purchased books on-device into EPUB or PDF.\n\n• For your personal use and your own loans/purchases only.\n• Fulfills directly on-device using Adobe / ByteBooks ADEPT protocols.\n• Expired loans are automatically cleaned up 1 day after expiry.\n\nDo you want to enable on-device ACSM fulfillment?"
 msgstr "Beeline can fulfill your library loans and purchased books on-device into EPUB or PDF.\n\n• For your personal use and your own loans/purchases only.\n• Fulfills directly on-device using Adobe / ByteBooks ADEPT protocols.\n• Expired loans are automatically cleaned up 1 day after expiry.\n\nDo you want to enable on-device ACSM fulfillment?"
+
+msgid "Beeline · Loans"
+msgstr "Beeline · Loans"
 
 msgid "Beeline: Check for Files"
 msgstr "Beeline: Check for Files"
@@ -200,12 +215,6 @@ msgstr "Decrypting file…"
 msgid "Decryption Failed"
 msgstr "Decryption Failed"
 
-msgid "Default Loan Duration (Days)"
-msgstr "Default Loan Duration (Days)"
-
-msgid "Default Loan Expiry"
-msgstr "Default Loan Expiry"
-
 msgid "Destination Inbox"
 msgstr "Destination Inbox"
 
@@ -236,8 +245,20 @@ msgstr "Downloading file %d of %d…"
 msgid "Downloading file…"
 msgstr "Downloading file…"
 
+msgid "Due %s"
+msgstr "Due %s"
+
+msgid "Due Date"
+msgstr "Due Date"
+
 msgid "Enter full HTTPS endpoint of your Beeline Worker:"
 msgstr "Enter full HTTPS endpoint of your Beeline Worker:"
+
+msgid "Expired"
+msgstr "Expired"
+
+msgid "Expires today"
+msgstr "Expires today"
 
 msgid "Failed to create folder."
 msgstr "Failed to create folder."
@@ -247,6 +268,9 @@ msgstr "File Received!"
 
 msgid "Folder"
 msgstr "Folder"
+
+msgid "Format"
+msgstr "Format"
 
 msgid "Fulfilling Loan"
 msgstr "Fulfilling Loan"
@@ -278,6 +302,12 @@ msgstr "Keeps Wi-Fi active every 30s; will noticeably increase battery drain."
 msgid "Library Loans"
 msgstr "Library Loans"
 
+msgid "Loan"
+msgstr "Loan"
+
+msgid "Loan Details"
+msgstr "Loan Details"
+
 msgid "Loan Token Expired"
 msgstr "Loan Token Expired"
 
@@ -296,6 +326,12 @@ msgstr "New pairing code: %s"
 msgid "Next"
 msgstr "Next"
 
+msgid "Next ›"
+msgstr "Next ›"
+
+msgid "No active library loans.\n\nFulfilled library loans with an expiration date will appear here. Purchased books do not expire."
+msgstr "No active library loans.\n\nFulfilled library loans with an expiration date will appear here. Purchased books do not expire."
+
 msgid "No browsers paired"
 msgstr "No browsers paired"
 
@@ -305,8 +341,14 @@ msgstr "No incoming files found."
 msgid "No subfolders in this directory.\nTap 'Select Folder' below to use it, or '+ New' to create a subfolder."
 msgstr "No subfolders in this directory.\nTap 'Select Folder' below to use it, or '+ New' to create a subfolder."
 
+msgid "None ›"
+msgstr "None ›"
+
 msgid "OK"
 msgstr "OK"
+
+msgid "Open Book"
+msgstr "Open Book"
 
 msgid "Open Folder"
 msgstr "Open Folder"
@@ -322,9 +364,6 @@ msgstr "Page %d of %d"
 
 msgid "Please configure your Pairing Code and Worker URL in Beeline Settings before checking for files."
 msgstr "Please configure your Pairing Code and Worker URL in Beeline Settings before checking for files."
-
-msgid "Please enter a valid number of days (1-365)"
-msgstr "Please enter a valid number of days (1-365)"
 
 msgid "QR code unavailable.\nPlease open in browser:\n"
 msgstr "QR code unavailable.\nPlease open in browser:\n"
@@ -383,8 +422,14 @@ msgstr "This loan was already fulfilled by another user or device.\n(E_LIC_ALREA
 msgid "This will revoke all currently connected phones and computers. They will need a new pairing code to send books."
 msgstr "This will revoke all currently connected phones and computers. They will need a new pairing code to send books."
 
+msgid "Title"
+msgstr "Title"
+
 msgid "Token was already fulfilled on another device."
 msgstr "Token was already fulfilled on another device."
+
+msgid "Unknown Title"
+msgstr "Unknown Title"
 
 msgid "Valid for %d min • Browsers stay paired permanently"
 msgstr "Valid for %d min • Browsers stay paired permanently"
@@ -473,6 +518,12 @@ msgstr "Sign In"
 msgid "btn_test_save"
 msgstr "Test & Save"
 
+msgid "loan"
+msgstr "loan"
+
+msgid "loans"
+msgstr "loans"
+
 msgid "menu_beeline"
 msgstr "Beeline"
 
@@ -532,6 +583,9 @@ msgstr "Library Loans"
 
 msgid "section_relay_storage"
 msgstr "Relay & Storage"
+
+msgid "‹ Prev"
+msgstr "‹ Prev"
 
 msgid "↻  New Code"
 msgstr "↻  New Code"

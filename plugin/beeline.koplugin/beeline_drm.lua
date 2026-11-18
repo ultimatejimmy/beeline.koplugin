@@ -254,6 +254,33 @@ local function _getField(t, name)
     return nil
 end
 
+local function _parseIsoTimestamp(ts_str)
+    if type(ts_str) ~= "string" or ts_str == "" then return nil end
+    local y, m, d, h, min, sec = ts_str:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)")
+    if y then
+        return os.time({
+            year = tonumber(y),
+            month = tonumber(m),
+            day = tonumber(d),
+            hour = tonumber(h),
+            min = tonumber(min),
+            sec = tonumber(sec),
+        })
+    end
+    local dy, dm, dd = ts_str:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
+    if dy then
+        return os.time({
+            year = tonumber(dy),
+            month = tonumber(dm),
+            day = tonumber(dd),
+            hour = 23,
+            min = 59,
+            sec = 59,
+        })
+    end
+    return nil
+end
+
 function M.parseAcsmMetadata(acsm_path_or_content)
     local raw_data = acsm_path_or_content
     local f = io.open(acsm_path_or_content, "rb")
@@ -269,8 +296,12 @@ function M.parseAcsmMetadata(acsm_path_or_content)
 
     local token = parsed.fulfillmentToken or parsed["adept:fulfillmentToken"]
     if not token then
+        local fr = parsed.fulfillmentResult or parsed["adept:fulfillmentResult"]
+        if type(fr) == "table" then token = fr end
+    end
+    if not token then
         for k, v in pairs(parsed) do
-            if type(k) == "string" and (k:match("fulfillmentToken$") or k:match("licenseToken$")) then
+            if type(k) == "string" and (k:match("fulfillmentToken$") or k:match("fulfillmentResult$") or k:match("licenseToken$")) then
                 token = v
                 break
             end
@@ -279,16 +310,20 @@ function M.parseAcsmMetadata(acsm_path_or_content)
     if not token or type(token) ~= "table" then return nil end
 
     local rii = _getField(token, "resourceItemInfo")
-    if not rii then return nil end
+    local licenseToken = rii and _getField(rii, "licenseToken") or _getField(token, "licenseToken")
+    if not licenseToken and (_getField(token, "permissions") or token.encryptedKey or token["adept:encryptedKey"]) then
+        licenseToken = token
+    end
+    if not rii and not licenseToken then return nil end
 
-    local resource = _getField(rii, "resource")
-    local meta = _getField(rii, "metadata")
-    local resource_item = _getField(rii, "resourceItem")
+    local resource = rii and _getField(rii, "resource")
+    local meta = rii and _getField(rii, "metadata")
+    local resource_item = rii and _getField(rii, "resourceItem")
     local asset = resource_item and _getField(resource_item, "asset")
 
-    -- Check licenseToken permissions duration
+    -- Check licenseToken permissions duration and until
     local duration = nil
-    local licenseToken = _getField(rii, "licenseToken")
+    local until_date = nil
     if licenseToken then
         local perms = _getField(licenseToken, "permissions")
         if perms then
@@ -297,6 +332,12 @@ function M.parseAcsmMetadata(acsm_path_or_content)
                 local dur = _getField(display, "duration")
                 if type(dur) == "table" then dur = dur[1] end
                 duration = tonumber(dur)
+
+                local unt = _getField(display, "until")
+                if type(unt) == "table" then unt = unt[1] end
+                if type(unt) == "string" and unt ~= "" then
+                    until_date = unt
+                end
             end
         end
     end
@@ -315,43 +356,42 @@ function M.parseAcsmMetadata(acsm_path_or_content)
         resourceId = type(resource) == "table" and resource[1] or resource,
         format = _firstMetadataValue(meta, "dc:format") or (asset and (asset.assetType or _getField(asset, "assetType"))),
         duration = duration,
+        until_date = until_date,
         purchase = purchase,
     }
 end
 
---- Extracts loan expiry timestamp (unix timestamp) from ACSM metadata or rights.xml
---- Fallback calculates (now + default_loan_days * 86400)
-function M.extractLoanExpiry(acsm_path_or_meta, default_days)
-    default_days = default_days or State.getDrmDefaultLoanDays()
+--- Extracts loan expiry timestamp (unix timestamp) from ACSM metadata or server licenseToken XML.
+--- Returns nil for purchased books that have no <duration> or <until> display constraint.
+function M.extractLoanExpiry(acsm_path_or_meta, license_xml_or_meta)
     local now_ts = os.time()
 
-    local meta = acsm_path_or_meta
-    if type(acsm_path_or_meta) == "string" then
-        meta = M.parseAcsmMetadata(acsm_path_or_meta)
-    end
-
-    if meta and meta.duration and meta.duration > 0 then
-        -- Check if we can parse purchase timestamp
-        local purchase_ts = nil
-        if meta.purchase and type(meta.purchase) == "string" then
-            local y, m, d, h, min, sec = meta.purchase:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)")
-            if y then
-                purchase_ts = os.time({
-                    year = tonumber(y),
-                    month = tonumber(m),
-                    day = tonumber(d),
-                    hour = tonumber(h),
-                    min = tonumber(min),
-                    sec = tonumber(sec),
-                })
-            end
+    local function resolveMeta(input)
+        if type(input) == "table" then return input end
+        if type(input) == "string" and input ~= "" then
+            return M.parseAcsmMetadata(input)
         end
-        local start = purchase_ts or now_ts
-        return start + meta.duration
+        return nil
     end
 
-    -- Fallback: now + default_days
-    return now_ts + (default_days * 86400)
+    local meta = resolveMeta(acsm_path_or_meta)
+    local lic_meta = resolveMeta(license_xml_or_meta)
+
+    local until_str = (lic_meta and lic_meta.until_date) or (meta and meta.until_date)
+    if until_str then
+        local until_ts = _parseIsoTimestamp(until_str)
+        if until_ts then return until_ts end
+    end
+
+    local duration = (lic_meta and lic_meta.duration) or (meta and meta.duration)
+    if duration and duration > 0 then
+        local purchase_str = (lic_meta and lic_meta.purchase) or (meta and meta.purchase)
+        local purchase_ts = _parseIsoTimestamp(purchase_str)
+        local start = purchase_ts or now_ts
+        return start + duration
+    end
+
+    return nil
 end
 
 function M.deriveFinalBookPath(base_dir, acsm_meta)

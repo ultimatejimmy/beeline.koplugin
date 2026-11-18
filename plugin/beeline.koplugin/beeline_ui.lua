@@ -5,10 +5,14 @@ local UIManager       = require("ui/uimanager")
 local InputContainer  = require("ui/widget/container/inputcontainer")
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local CenterContainer = require("ui/widget/container/centercontainer")
+local _, BottomContainer = pcall(require, "ui/widget/container/bottomcontainer")
+local _, LeftContainer   = pcall(require, "ui/widget/container/leftcontainer")
+local _, RightContainer  = pcall(require, "ui/widget/container/rightcontainer")
 local VerticalGroup   = require("ui/widget/verticalgroup")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local VerticalSpan    = require("ui/widget/verticalspan")
 local HorizontalSpan  = require("ui/widget/horizontalspan")
+local _, OverlapGroup    = pcall(require, "ui/widget/overlapgroup")
 local LineWidget      = require("ui/widget/linewidget")
 local TextWidget      = require("ui/widget/textwidget")
 local TextBoxWidget   = require("ui/widget/textboxwidget")
@@ -1089,7 +1093,6 @@ local function createIconButton(opts)
         file = icon_file,
         width = icon_size,
         height = icon_size,
-        scale_factor = 0,
         is_icon = true,
         alpha = true,
     }
@@ -1127,6 +1130,8 @@ end
 -- ---------------------------------------------------------------------------
 -- Main Pairing & Connection Screen (Libbee Clean Dialog with Embedded QR)
 -- ---------------------------------------------------------------------------
+
+local _getActiveLoans
 
 function M.showMainDialog(plugin_instance, on_close_cb)
     _dismissActiveToast()
@@ -1308,6 +1313,40 @@ function M.showMainDialog(plugin_instance, on_close_cb)
         table.insert(content_vg, CenterContainer:new{
             dimen = Geom:new{ w = inner_w, h = sc(38) },
             check_btn,
+        })
+        table.insert(content_vg, VerticalSpan:new{ width = sc(6) })
+
+        -- Action Button: Active Loans
+        local active_loans = _getActiveLoans()
+        local loans_btn_text = (#active_loans > 0) and _("Active Loans (%d)", #active_loans) or _("Active Loans")
+        local loans_btn_idx = #interactive_items + 1
+        local is_loans_focused = (focus_visible and focused_row_idx == loans_btn_idx)
+        local loans_btn = createButton{
+            text = loans_btn_text,
+            text_font_size = ui_font_size,
+            bold = true,
+            is_focused = is_loans_focused,
+            bordersize = is_loans_focused and (theme.border_focus or sc(3)) or (theme.border_btn or sc(1)),
+            radius = theme.radius_btn or sc(4),
+            width = check_btn_w,
+            height = sc(34),
+            callback = function()
+                cancelPoll()
+                if overlay then
+                    local ov = overlay
+                    overlay = nil
+                    ov.onClose = nil
+                    UIManager:close(ov, "ui")
+                end
+                M.showActiveLoansDialog(plugin_instance, function()
+                    M.showMainDialog(plugin_instance, on_close_cb)
+                end)
+            end,
+        }
+        table.insert(interactive_items, { callback = loans_btn.callback })
+        table.insert(content_vg, CenterContainer:new{
+            dimen = Geom:new{ w = inner_w, h = sc(36) },
+            loans_btn,
         })
         table.insert(content_vg, VerticalSpan:new{ width = sc(8) })
 
@@ -1679,6 +1718,1057 @@ function M.showMainDialog(plugin_instance, on_close_cb)
     end
 
     refresh()
+end
+
+-- ---------------------------------------------------------------------------
+-- Active Loans Shelf Browser (Libbee Cover & List Views)
+-- ---------------------------------------------------------------------------
+
+local active_loans_overlay = nil
+
+local function _parseExpiryTimestamp(expires)
+    if type(expires) == "number" then
+        return expires
+    end
+    if type(expires) == "string" then
+        local y, m, d, h, min, sec = expires:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)")
+        if y then
+            return os.time({
+                year = tonumber(y),
+                month = tonumber(m),
+                day = tonumber(d),
+                hour = tonumber(h),
+                min = tonumber(min),
+                sec = tonumber(sec),
+            })
+        end
+        local dy, dm, dd = expires:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)")
+        if dy then
+            return os.time({
+                year = tonumber(dy),
+                month = tonumber(dm),
+                day = tonumber(dd),
+                hour = 23,
+                min = 59,
+                sec = 59,
+            })
+        end
+    end
+    return nil
+end
+
+_getActiveLoans = function()
+    local tracked = State.getTrackedBooks() or {}
+    local loans = {}
+    local now_ts = os.time()
+
+    local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
+    if not ok_lfs then ok_lfs, lfs = pcall(require, "lfs") end
+
+    for _, item in ipairs(tracked) do
+        if item and item.path and item.expires ~= nil then
+            local exp_ts = _parseExpiryTimestamp(item.expires)
+            if exp_ts then
+                local exists = false
+                if ok_lfs and lfs and lfs.attributes then
+                    exists = (lfs.attributes(item.path, "mode") == "file")
+                else
+                    local f = io.open(item.path, "rb")
+                    if f then f:close(); exists = true end
+                end
+                if exists then
+                    local diff_sec = exp_ts - now_ts
+                    local days_remaining = math.ceil(diff_sec / 86400)
+                    if diff_sec <= 0 then
+                        days_remaining = math.floor(diff_sec / 86400)
+                    end
+                    local fname = item.path:match("([^/\\]+)$") or item.path
+                    local fallback_title = fname:gsub("%.[^%.]+$", ""):gsub("_", " ")
+                    local title = (item.title and item.title ~= "") and item.title or fallback_title
+                    table.insert(loans, {
+                        path = item.path,
+                        title = title,
+                        author = item.author or "",
+                        format = item.format or (item.path:lower():match("%.pdf$") and "pdf" or "epub"),
+                        expires_ts = exp_ts,
+                        due_date = os.date("%Y-%m-%d", exp_ts),
+                        days_remaining = days_remaining,
+                        is_adept = (item.is_adept == true),
+                    })
+                end
+            end
+        end
+    end
+
+    table.sort(loans, function(a, b)
+        if a.expires_ts ~= b.expires_ts then
+            return a.expires_ts < b.expires_ts
+        end
+        return tostring(a.title or ""):lower() < tostring(b.title or ""):lower()
+    end)
+
+    return loans
+end
+
+local function _fmtLoanDays(days)
+    if not days then return "" end
+    if days < 0 then return _("Expired") end
+    if days == 0 then return _("Expires today") end
+    if days == 1 then return _("1 day left") end
+    return _("%d days left", days)
+end
+
+local function _createLoanBadge(text, is_urgent)
+    if not text or text == "" then return nil end
+    local bg = is_urgent and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE
+    local fg = is_urgent and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+    local label = TextWidget:new{
+        text = text,
+        face = Font:getFace("cfont", 14),
+        bold = is_urgent,
+        fgcolor = fg,
+    }
+    return FrameContainer:new{
+        padding_top = sc(2),
+        padding_bottom = sc(2),
+        padding_left = sc(7),
+        padding_right = sc(7),
+        bordersize = is_urgent and 0 or sc(1),
+        color = Blitbuffer.COLOR_BLACK,
+        background = bg,
+        radius = theme.radius_badge or sc(8),
+        label,
+    }
+end
+
+local function _getLoanCoverPath(loan)
+    if not loan or not loan.path then return nil end
+    local sidecar_dir = nil
+    local ok_ds, DocSettings = pcall(require, "docsettings")
+    if ok_ds and DocSettings and type(DocSettings.getSidecarDir) == "function" then
+        local ok_sd, sd = pcall(DocSettings.getSidecarDir, DocSettings, loan.path, "doc")
+        if ok_sd and type(sd) == "string" and sd ~= "" then
+            sidecar_dir = sd
+        end
+    end
+    if not sidecar_dir then
+        sidecar_dir = loan.path:gsub("%.[^%.]+$", "") .. ".sdr"
+    end
+
+    local exts = { "jpg", "jpeg", "png", "webp", "gif" }
+    for _, ext in ipairs(exts) do
+        local candidate = sidecar_dir .. "/cover." .. ext
+        local f = io.open(candidate, "rb")
+        if f then
+            f:close()
+            return candidate
+        end
+    end
+    return nil
+end
+
+local _loan_cover_cache = {}
+
+local function _createLoanCoverImageWidget(file_path, target_w, target_h)
+    local ok_ri, RenderImage = pcall(require, "ui/renderimage")
+    if not ok_ri or not RenderImage or not file_path or not target_w or not target_h then
+        return nil
+    end
+
+    local cache_key = string.format("%s|%dx%d", file_path, target_w, target_h)
+    local cached_bb = _loan_cover_cache[cache_key]
+    if cached_bb then
+        return ImageWidget:new{
+            image = cached_bb,
+            image_disposable = false,
+            width = target_w,
+            height = target_h,
+        }
+    end
+
+    local ok, orig_bb = pcall(function()
+        return RenderImage:renderImageFile(file_path, false)
+    end)
+    if not ok or not orig_bb then return nil end
+
+    local orig_w = orig_bb:getWidth()
+    local orig_h = orig_bb:getHeight()
+    if not orig_w or not orig_h or orig_w <= 0 or orig_h <= 0 then
+        if orig_bb.free then pcall(function() orig_bb:free() end) end
+        return nil
+    end
+
+    -- Scale with aspect fit (entire cover visible, centered inside target box)
+    local scale = math.min(target_w / orig_w, target_h / orig_h)
+    local scaled_w = math.max(1, math.min(target_w, math.floor(orig_w * scale)))
+    local scaled_h = math.max(1, math.min(target_h, math.floor(orig_h * scale)))
+
+    local ok_scale, scaled_bb = pcall(function()
+        return RenderImage:scaleBlitBuffer(orig_bb, scaled_w, scaled_h, false)
+    end)
+    if orig_bb.free then pcall(function() orig_bb:free() end) end
+    if not ok_scale or not scaled_bb then return nil end
+
+    local sw_actual = scaled_bb:getWidth()
+    local sh_actual = scaled_bb:getHeight()
+    local dest_x = math.max(0, math.floor((target_w - sw_actual) / 2))
+    local dest_y = math.max(0, math.floor((target_h - sh_actual) / 2))
+
+    local bb_type = (scaled_bb.getType and scaled_bb:getType()) or Blitbuffer.TYPE_BPP24
+    local dest_bb = Blitbuffer.new(target_w, target_h, bb_type)
+    pcall(function() dest_bb:fill(Blitbuffer.COLOR_WHITE) end)
+    pcall(function()
+        dest_bb:blitFrom(scaled_bb, dest_x, dest_y, 0, 0, sw_actual, sh_actual)
+    end)
+    if scaled_bb.free then pcall(function() scaled_bb:free() end) end
+
+    _loan_cover_cache[cache_key] = dest_bb
+
+    return ImageWidget:new{
+        image = dest_bb,
+        image_disposable = false,
+        width = target_w,
+        height = target_h,
+    }
+end
+
+local function _createLoanPlaceholderWidget(target_w, target_h)
+    local icon_w = TextWidget:new{
+        text = "📖",
+        face = Font:getFace("cfont", 24),
+    }
+    return FrameContainer:new{
+        bordersize = 0,
+        padding = 0,
+        margin = 0,
+        background = Blitbuffer.COLOR_LIGHT_GRAY,
+        width = target_w,
+        height = target_h,
+        CenterContainer:new{
+            dimen = Geom:new{ w = target_w, h = target_h },
+            VerticalGroup:new{
+                align = "center",
+                icon_w,
+            }
+        }
+    }
+end
+
+local function _makeLoanTapItem(frame, callback)
+    local item = InputContainer:new{ frame }
+    item.ges_events = {
+        Tap = {
+            GestureRange:new{
+                ges = "tap",
+                range = function()
+                    local dim = item.dimen
+                    if not dim then return Geom:new{ x = -1, y = -1, w = 1, h = 1 } end
+                    local fsize = (frame and frame.getSize and frame:getSize()) or {}
+                    return Geom:new{
+                        x = dim.x or 0,
+                        y = dim.y or 0,
+                        w = dim.w or fsize.w or 0,
+                        h = dim.h or fsize.h or 0,
+                    }
+                end
+            }
+        }
+    }
+    item.onTap = function()
+        if callback then pcall(callback) end
+        return true
+    end
+    return item
+end
+
+function M.showLoanDetailsDialog(loan, on_open_book)
+    if not loan then return end
+    local days_str = _fmtLoanDays(loan.days_remaining)
+    local fmt_str = (loan.format and loan.format:upper()) or "EPUB"
+    local lines = {
+        string.format("%s:  %s", _("Title"), loan.title or _("Unknown Title")),
+    }
+    if loan.author and loan.author ~= "" then
+        table.insert(lines, string.format("%s: %s", _("Author"), loan.author))
+    end
+    table.insert(lines, string.format("%s: %s", _("Format"), fmt_str))
+    table.insert(lines, string.format("%s: %s", _("Due Date"), loan.due_date or ""))
+    if days_str ~= "" then
+        table.insert(lines, string.format("%s: %s", _("Loan"), days_str))
+    end
+
+    M.showCardDialog{
+        title = _("Loan Details"),
+        body_text = table.concat(lines, "\n"),
+        buttons = {
+            {
+                text = _("Open Book"),
+                is_primary = true,
+                callback = function()
+                    if on_open_book then on_open_book() end
+                    local ok_rui, ReaderUI = pcall(require, "apps/reader/readerui")
+                    if ok_rui and ReaderUI and ReaderUI.showReader then
+                        ReaderUI:showReader(loan.path)
+                    end
+                end,
+            },
+            {
+                text = _("Close"),
+                is_primary = false,
+            },
+        },
+    }
+end
+
+function M.showActiveLoansDialog(plugin_instance, on_close_cb)
+    _dismissActiveToast()
+    local is_touch_device = isTouchDevice()
+    local focus_visible = not is_touch_device
+    local current_page = 1
+    local focused_loan_idx = 1
+    local focused_header_idx = 1
+    local focus_zone = "items" -- "items" or "header"
+
+    local function closeLoansBrowser(run_cb)
+        if active_loans_overlay then
+            local ov = active_loans_overlay
+            active_loans_overlay = nil
+            ov.onClose = nil
+            UIManager:close(ov, "ui")
+        end
+        if run_cb and on_close_cb then on_close_cb() end
+    end
+
+    local function renderLoans()
+        if active_loans_overlay then
+            local ov = active_loans_overlay
+            active_loans_overlay = nil
+            ov.onClose = nil
+            UIManager:close(ov, "ui")
+        end
+
+        local sw = Screen:getWidth()
+        local sh = Screen:getHeight()
+        local view_mode = State.getLoansViewMode()
+        local loans = _getActiveLoans()
+        local loan_count = #loans
+
+        if loan_count == 0 then
+            focus_zone = "header"
+        end
+
+        local is_hdr = (focus_zone == "header")
+        local view_toggle_icon = (view_mode == "cover") and "list.svg" or "grid.svg"
+        local view_toggle_btn = createIconButton{
+            icon_file = getAssetPath(view_toggle_icon),
+            width = sc(40),
+            height = sc(40),
+            icon_size = sc(32),
+            padding = sc(4),
+            padding_h = sc(4),
+            is_focused = (focus_visible and is_hdr and focused_header_idx == 1),
+            callback = function()
+                focus_zone = "header"
+                focused_header_idx = 1
+                local next_mode = (view_mode == "cover") and "list" or "cover"
+                State.setLoansViewMode(next_mode)
+                current_page = 1
+                focused_loan_idx = 1
+                renderLoans()
+            end,
+        }
+
+        local close_btn = createIconButton{
+            icon_file = getAssetPath("x.svg"),
+            width = sc(40),
+            height = sc(40),
+            icon_size = sc(32),
+            padding = sc(4),
+            padding_h = sc(4),
+            is_focused = (focus_visible and is_hdr and focused_header_idx == 2),
+            callback = function()
+                closeLoansBrowser(true)
+            end,
+        }
+
+        local header_actions = HorizontalGroup:new{
+            view_toggle_btn,
+            HorizontalSpan:new{ width = sc(12) },
+            close_btn,
+        }
+
+        local bee_icon = ImageWidget:new{
+            file = getAssetPath("bee.png"),
+            width = sc(34),
+            height = sc(34),
+            scale_factor = 0,
+            is_icon = true,
+            alpha = true,
+        }
+        local header_title = HorizontalGroup:new{
+            align = "center",
+            bee_icon,
+            HorizontalSpan:new{ width = sc(8) },
+            TextWidget:new{
+                text = _("Beeline · Loans"),
+                face = Font:getFace("NotoSerif-Regular.ttf", theme.title_font_size or 22),
+                bold = true,
+                fgcolor = Blitbuffer.COLOR_BLACK,
+            }
+        }
+
+        local count_str = string.format("%d %s", loan_count, loan_count == 1 and _("loan") or _("loans"))
+        local actions_w = (header_actions.getSize and header_actions:getSize().w) or sc(80)
+        local header_avail_w = sw - sc(24)
+        local header_top_row = HorizontalGroup:new{
+            header_title,
+            HorizontalSpan:new{ width = math.max(sc(8), header_avail_w - ((header_title.getSize and header_title:getSize().w) or sc(160)) - actions_w) },
+            header_actions,
+        }
+        local header_sub = TextWidget:new{
+            text = count_str,
+            face = Font:getFace("cfont", theme.subtext_font_size or 15),
+            fgcolor = theme.color_label_dim,
+            max_width = header_avail_w,
+        }
+        local header_frame = FrameContainer:new{
+            padding = sc(10),
+            padding_left = sc(12),
+            padding_right = sc(12),
+            bordersize = 0,
+            background = theme.color_bg or Blitbuffer.COLOR_WHITE,
+            width = sw,
+            VerticalGroup:new{
+                align = "left",
+                header_top_row,
+                VerticalSpan:new{ width = sc(2) },
+                header_sub,
+            },
+        }
+        local header_divider = LineWidget:new{
+            dimen = Geom:new{ w = sw, h = sc(1) },
+            background = Blitbuffer.COLOR_BLACK,
+        }
+
+        local header_h = ((header_frame.getSize and header_frame:getSize().h) or sc(72)) + sc(2)
+        local footer_h = sc(48)
+        local top_margin = sc(6)
+        local safety_margin = sc(20)
+        local avail_h = sh - header_h - footer_h - top_margin - safety_margin
+
+        local COLS = 3
+        local grid_gap = sc(10)
+        local border_w = theme.border_preview or sc(2)
+        local target_margin_h = sc(14)
+        local avail_grid_w = sw - (target_margin_h * 2)
+        local cell_w = math.floor((avail_grid_w - (grid_gap * (COLS - 1))) / COLS)
+        local row_total_w = (cell_w * COLS) + (grid_gap * (COLS - 1))
+        local margin_h = math.floor((sw - row_total_w) / 2)
+        local content_w = row_total_w
+        local content_inner = content_w - sc(16)
+
+        local tile_extra_h = (border_w * 2) + sc(4) + sc(56) + sc(4) + sc(26)
+        local grid_gap_v = sc(8)
+        local cover_inner_w, cover_inner_h, cover_row_h
+
+        if view_mode == "cover" then
+            local max_cover_w_by_cell = cell_w - (border_w * 2)
+            local ideal_cover_h = math.floor(max_cover_w_by_cell * 1.38)
+            local max_row_h_3 = math.floor((avail_h - (grid_gap_v * 2)) / 3)
+            local max_cover_h_3 = max_row_h_3 - tile_extra_h
+            local max_row_h_2 = math.floor((avail_h - grid_gap_v) / 2)
+            local max_cover_h_2 = max_row_h_2 - tile_extra_h
+
+            local num_rows
+            if max_cover_h_3 >= math.floor(ideal_cover_h * 0.90) then
+                num_rows = 3
+            elseif max_cover_h_2 >= sc(70) then
+                num_rows = 2
+            else
+                num_rows = 1
+            end
+
+            local max_row_h = math.floor((avail_h - (grid_gap_v * (num_rows - 1))) / num_rows)
+            local max_cover_h = math.max(sc(45), max_row_h - tile_extra_h)
+            local max_cover_w_by_h = math.floor(max_cover_h / 1.38)
+            cover_inner_w = math.max(sc(40), math.min(max_cover_w_by_cell, max_cover_w_by_h))
+            cover_inner_h = math.floor(cover_inner_w * 1.38)
+            cover_row_h = cover_inner_h + tile_extra_h
+        end
+
+        local pages = {}
+        if loan_count > 0 then
+            if view_mode == "cover" then
+                local rows_per_page = math.max(1, math.floor((avail_h + grid_gap_v) / (cover_row_h + grid_gap_v)))
+                local per_page = rows_per_page * COLS
+                for i = 1, loan_count, per_page do
+                    local chunk = {}
+                    for k = i, math.min(loan_count, i + per_page - 1) do
+                        table.insert(chunk, loans[k])
+                    end
+                    table.insert(pages, chunk)
+                end
+            else
+                local list_row_h = sc(92)
+                local per_page = math.max(1, math.floor(avail_h / list_row_h))
+                for i = 1, loan_count, per_page do
+                    local chunk = {}
+                    for k = i, math.min(loan_count, i + per_page - 1) do
+                        table.insert(chunk, loans[k])
+                    end
+                    table.insert(pages, chunk)
+                end
+            end
+        end
+
+        local total_pages = math.max(1, #pages)
+        if current_page > total_pages then current_page = total_pages end
+        if current_page < 1 then current_page = 1 end
+
+        local cur_page_loans = pages[current_page] or {}
+        if focused_loan_idx > #cur_page_loans and #cur_page_loans > 0 then
+            focused_loan_idx = #cur_page_loans
+        elseif focused_loan_idx < 1 then
+            focused_loan_idx = 1
+        end
+
+        local page_content_vg = VerticalGroup:new{ align = "left" }
+
+        local function openLoan(loan, idx)
+            focus_zone = "items"
+            focused_loan_idx = idx
+            if is_touch_device then focus_visible = false end
+            M.showLoanDetailsDialog(loan, function()
+                closeLoansBrowser(false)
+            end)
+        end
+
+        if loan_count == 0 then
+            local empty_text = TextBoxWidget:new{
+                text = _("No active library loans.\n\nFulfilled library loans with an expiration date will appear here. Purchased books do not expire."),
+                face = Font:getFace("cfont", 16),
+                fgcolor = Blitbuffer.COLOR_BLACK,
+                width = sw - sc(48),
+                alignment = "center",
+            }
+            table.insert(page_content_vg, FrameContainer:new{
+                padding = sc(30),
+                bordersize = 0,
+                width = sw,
+                CenterContainer:new{
+                    dimen = Geom:new{ w = sw - sc(48), h = sh - sc(200) },
+                    empty_text,
+                }
+            })
+        elseif view_mode == "list" then
+            for idx, loan in ipairs(cur_page_loans) do
+                local is_focused = (focus_visible and focus_zone == "items" and idx == focused_loan_idx)
+                local badge_w = _createLoanBadge(_fmtLoanDays(loan.days_remaining), (loan.days_remaining and loan.days_remaining <= 2) or is_focused)
+                local badge_reserve = badge_w and (((badge_w.getSize and badge_w:getSize().w) or sc(90)) + sc(8)) or 0
+                local thumb_w_size = sc(54)
+                local thumb_h_size = sc(76)
+                local thumb_reserve = thumb_w_size + sc(10)
+                local text_w = content_inner - badge_reserve - thumb_reserve
+
+                local cover_path = _getLoanCoverPath(loan)
+                local thumb_widget = cover_path and _createLoanCoverImageWidget(cover_path, thumb_w_size, thumb_h_size)
+                if not thumb_widget then
+                    thumb_widget = _createLoanPlaceholderWidget(thumb_w_size, thumb_h_size)
+                end
+
+                local thumb_frame = FrameContainer:new{
+                    bordersize = 0,
+                    padding = 0,
+                    width = thumb_w_size,
+                    height = thumb_h_size,
+                    thumb_widget,
+                }
+
+                local title_w = TextWidget:new{
+                    text = loan.title,
+                    face = Font:getFace("NotoSerif-Regular.ttf", theme.title_font_size or 20),
+                    bold = true,
+                    fgcolor = Blitbuffer.COLOR_BLACK,
+                    max_width = text_w,
+                }
+
+                local meta_parts = {}
+                if loan.author and loan.author ~= "" then table.insert(meta_parts, loan.author) end
+                table.insert(meta_parts, _("Due %s", loan.due_date))
+                local meta_w = TextWidget:new{
+                    text = table.concat(meta_parts, "  ·  "),
+                    face = Font:getFace("cfont", theme.subtext_font_size or 16),
+                    fgcolor = theme.color_label_dim,
+                    max_width = text_w,
+                }
+
+                local row_left = HorizontalGroup:new{
+                    thumb_frame,
+                    HorizontalSpan:new{ width = sc(10) },
+                    VerticalGroup:new{
+                        align = "left",
+                        title_w,
+                        VerticalSpan:new{ width = sc(2) },
+                        meta_w,
+                    },
+                }
+
+                local total_h = math.max((row_left.getSize and row_left:getSize().h) or thumb_h_size, (badge_w and badge_w.getSize and badge_w:getSize().h) or 0)
+                local row_overlap
+                if badge_w and OverlapGroup and LeftContainer and RightContainer then
+                    row_overlap = OverlapGroup:new{
+                        dimen = Geom:new{ w = content_inner, h = total_h },
+                        LeftContainer:new{
+                            dimen = Geom:new{ w = content_inner, h = total_h },
+                            row_left,
+                        },
+                        RightContainer:new{
+                            dimen = Geom:new{ w = content_inner, h = total_h },
+                            badge_w,
+                        },
+                    }
+                else
+                    row_overlap = row_left
+                end
+
+                local row_frame = FrameContainer:new{
+                    padding = sc(8),
+                    bordersize = is_focused and (theme.border_focus or sc(2)) or 0,
+                    color = Blitbuffer.COLOR_BLACK,
+                    background = is_focused and (theme.color_focus_bg or Blitbuffer.COLOR_LIGHT_GRAY) or nil,
+                    radius = is_focused and (theme.radius_focus or sc(6)) or 0,
+                    width = content_w,
+                    row_overlap,
+                }
+
+                local row_tap = _makeLoanTapItem(row_frame, function()
+                    openLoan(loan, idx)
+                end)
+
+                table.insert(page_content_vg, HorizontalGroup:new{
+                    HorizontalSpan:new{ width = margin_h },
+                    row_tap,
+                    HorizontalSpan:new{ width = margin_h },
+                })
+                table.insert(page_content_vg, HorizontalGroup:new{
+                    HorizontalSpan:new{ width = margin_h },
+                    LineWidget:new{
+                        dimen = Geom:new{ w = content_w, h = sc(1) },
+                        background = theme.color_bg_dim or Blitbuffer.COLOR_LIGHT_GRAY,
+                    },
+                    HorizontalSpan:new{ width = margin_h },
+                })
+            end
+        else
+            local current_row_widgets = {}
+            for idx, loan in ipairs(cur_page_loans) do
+                local is_focused = (focus_visible and focus_zone == "items" and idx == focused_loan_idx)
+                local cover_path = _getLoanCoverPath(loan)
+                local cover_img = cover_path and _createLoanCoverImageWidget(cover_path, cover_inner_w, cover_inner_h)
+                if not cover_img then
+                    cover_img = _createLoanPlaceholderWidget(cover_inner_w, cover_inner_h)
+                end
+
+                local cover_frame = FrameContainer:new{
+                    bordersize = is_focused and (theme.border_focus or sc(3)) or 0,
+                    color = Blitbuffer.COLOR_BLACK,
+                    padding = is_focused and sc(3) or 0,
+                    background = is_focused and Blitbuffer.COLOR_WHITE or nil,
+                    radius = is_focused and (theme.radius_focus or sc(4)) or 0,
+                    cover_img,
+                }
+
+                local title_w = TextWidget:new{
+                    text = loan.title,
+                    face = Font:getFace("NotoSerif-Regular.ttf", 15),
+                    bold = true,
+                    max_width = cell_w - sc(4),
+                    fgcolor = Blitbuffer.COLOR_BLACK,
+                }
+                local date_w = TextWidget:new{
+                    text = loan.due_date,
+                    face = Font:getFace("cfont", 13),
+                    max_width = cell_w - sc(4),
+                    fgcolor = theme.color_label_dim,
+                }
+                local badge_widget = _createLoanBadge(_fmtLoanDays(loan.days_remaining), (loan.days_remaining and loan.days_remaining <= 2) or is_focused)
+
+                local cell_content = VerticalGroup:new{
+                    align = "center",
+                    cover_frame,
+                    VerticalSpan:new{ width = sc(6) },
+                    title_w,
+                    VerticalSpan:new{ width = sc(2) },
+                    date_w,
+                    VerticalSpan:new{ width = sc(4) },
+                    badge_widget or VerticalSpan:new{ width = 0 },
+                }
+
+                local cell_tap = _makeLoanTapItem(cell_content, function()
+                    openLoan(loan, idx)
+                end)
+                table.insert(current_row_widgets, cell_tap)
+
+                if #current_row_widgets == COLS or idx == #cur_page_loans then
+                    local row_group_items = { HorizontalSpan:new{ width = margin_h } }
+                    for col_i, cell in ipairs(current_row_widgets) do
+                        if col_i > 1 then
+                            table.insert(row_group_items, HorizontalSpan:new{ width = grid_gap })
+                        end
+                        table.insert(row_group_items, cell)
+                    end
+                    table.insert(row_group_items, HorizontalSpan:new{ width = margin_h })
+                    local row_group = HorizontalGroup:new(row_group_items)
+                    row_group.align = "top"
+                    table.insert(page_content_vg, row_group)
+                    table.insert(page_content_vg, VerticalSpan:new{ width = grid_gap_v })
+                    current_row_widgets = {}
+                end
+            end
+        end
+
+        local page_content_frame = FrameContainer:new{
+            bordersize = 0,
+            padding = 0,
+            width = sw,
+            page_content_vg,
+        }
+
+        local prev_btn = createButton{
+            text = _("‹ Prev"),
+            text_font_size = 16,
+            bold = true,
+            bordersize = sc(1),
+            radius = theme.radius_btn or sc(4),
+            padding = sc(4),
+            padding_h = sc(12),
+            callback = function()
+                if current_page > 1 then
+                    current_page = current_page - 1
+                    focused_loan_idx = 1
+                    renderLoans()
+                end
+            end,
+        }
+        local next_btn = createButton{
+            text = _("Next ›"),
+            text_font_size = 16,
+            bold = true,
+            bordersize = sc(1),
+            radius = theme.radius_btn or sc(4),
+            padding = sc(4),
+            padding_h = sc(12),
+            callback = function()
+                if current_page < total_pages then
+                    current_page = current_page + 1
+                    focused_loan_idx = 1
+                    renderLoans()
+                end
+            end,
+        }
+        local page_label = TextWidget:new{
+            text = string.format("%d / %d", current_page, total_pages),
+            face = Font:getFace("cfont", 16),
+            fgcolor = theme.color_label_dim,
+        }
+
+        local prev_w = (prev_btn.getSize and prev_btn:getSize().w) or sc(80)
+        local next_w = (next_btn.getSize and next_btn:getSize().w) or sc(80)
+        local label_w = (page_label.getSize and page_label:getSize().w) or sc(40)
+        local footer_inner_w = sw - sc(40)
+        local mid_spacer = math.max(sc(8), (footer_inner_w - prev_w - next_w - label_w) / 2)
+
+        local footer_widgets = HorizontalGroup:new{
+            current_page > 1 and prev_btn or HorizontalSpan:new{ width = prev_w },
+            HorizontalSpan:new{ width = mid_spacer },
+            page_label,
+            HorizontalSpan:new{ width = mid_spacer },
+            current_page < total_pages and next_btn or HorizontalSpan:new{ width = next_w },
+        }
+
+        local footer_frame = FrameContainer:new{
+            padding_top = sc(4),
+            padding_bottom = sc(6),
+            padding_left = sc(10),
+            padding_right = sc(10),
+            bordersize = 0,
+            background = theme.color_bg or Blitbuffer.COLOR_WHITE,
+            width = sw,
+            height = footer_h,
+            CenterContainer:new{
+                dimen = Geom:new{ w = sw - sc(20), h = footer_h - sc(10) },
+                footer_widgets,
+            }
+        }
+
+        local top_vg = VerticalGroup:new{
+            align = "left",
+            header_frame,
+            header_divider,
+            VerticalSpan:new{ width = top_margin },
+            page_content_frame,
+        }
+
+        local main_container
+        if BottomContainer and OverlapGroup then
+            main_container = OverlapGroup:new{
+                dimen = Geom:new{ w = sw, h = sh },
+                top_vg,
+                BottomContainer:new{
+                    dimen = Geom:new{ w = sw, h = sh },
+                    footer_frame,
+                },
+            }
+        else
+            main_container = top_vg
+        end
+
+        local bg_frame = FrameContainer:new{
+            padding = 0,
+            bordersize = 0,
+            background = theme.color_bg or Blitbuffer.COLOR_WHITE,
+            width = sw,
+            height = sh,
+            main_container,
+        }
+
+        local loans_key_events = {
+            Close = { { "Back" }, { "Escape" } },
+            PrevPage = { { "PgUp" }, { "Prev" }, { "LPgBack" }, { "RPgBack" } },
+            NextPage = { { "PgDn" }, { "Next" }, { "LPgFwd" }, { "RPgFwd" } },
+            Up = { { "Up" } },
+            Down = { { "Down" } },
+            Left = { { "Left" } },
+            Right = { { "Right" } },
+            Press = { { "Press" }, { "Enter" }, { "Return" }, { "Select" } },
+            ViewToggleKey = { { "v" }, { "V" } },
+            Num1 = { { "1" } },
+            Num2 = { { "2" } },
+            Num3 = { { "3" } },
+            Num4 = { { "4" } },
+            Num5 = { { "5" } },
+            Num6 = { { "6" } },
+            Num7 = { { "7" } },
+            Num8 = { { "8" } },
+            Num9 = { { "9" } },
+        }
+        if Device and Device.input and Device.input.group then
+            if Device.input.group.Back then table.insert(loans_key_events.Close, { Device.input.group.Back }) end
+            if Device.input.group.PgBack then table.insert(loans_key_events.PrevPage, { Device.input.group.PgBack }) end
+            if Device.input.group.PgFwd then table.insert(loans_key_events.NextPage, { Device.input.group.PgFwd }) end
+            if Device.input.group.Up then table.insert(loans_key_events.Up, { Device.input.group.Up }) end
+            if Device.input.group.Down then table.insert(loans_key_events.Down, { Device.input.group.Down }) end
+            if Device.input.group.Left then table.insert(loans_key_events.Left, { Device.input.group.Left }) end
+            if Device.input.group.Right then table.insert(loans_key_events.Right, { Device.input.group.Right }) end
+            if Device.input.group.Press then table.insert(loans_key_events.Press, { Device.input.group.Press }) end
+            if Device.input.group.Enter then table.insert(loans_key_events.Press, { Device.input.group.Enter }) end
+        end
+
+        active_loans_overlay = InputContainer:new{
+            dimen = Geom:new{ w = sw, h = sh },
+            key_events = loans_key_events,
+            ges_events = {
+                Swipe = {
+                    GestureRange:new{
+                        ges = "swipe",
+                        range = function() return Geom:new{ x = 0, y = 0, w = sw, h = sh } end,
+                    },
+                },
+            },
+            bg_frame,
+        }
+
+        local function activateLoanAtIndex(idx)
+            if cur_page_loans[idx] then
+                openLoan(cur_page_loans[idx], idx)
+                return true
+            end
+        end
+
+        active_loans_overlay.onPrevPage = function()
+            if current_page > 1 then
+                current_page = current_page - 1
+                focused_loan_idx = 1
+                renderLoans()
+                return true
+            end
+        end
+        active_loans_overlay.onNextPage = function()
+            if current_page < total_pages then
+                current_page = current_page + 1
+                focused_loan_idx = 1
+                renderLoans()
+                return true
+            end
+        end
+
+        local function ensureFocusVisible()
+            if not focus_visible then
+                focus_visible = true
+                renderLoans()
+                return true
+            end
+            return false
+        end
+
+        active_loans_overlay.onUp = function()
+            if ensureFocusVisible() then return true end
+            if focus_zone == "header" then return true end
+            if view_mode == "list" then
+                if focused_loan_idx > 1 then
+                    focused_loan_idx = focused_loan_idx - 1
+                else
+                    focus_zone = "header"
+                    focused_header_idx = 1
+                end
+            else
+                if focused_loan_idx > COLS then
+                    focused_loan_idx = focused_loan_idx - COLS
+                else
+                    focus_zone = "header"
+                    focused_header_idx = 1
+                end
+            end
+            renderLoans()
+            return true
+        end
+
+        active_loans_overlay.onDown = function()
+            if ensureFocusVisible() then return true end
+            if focus_zone == "header" then
+                if #cur_page_loans > 0 then
+                    focus_zone = "items"
+                    focused_loan_idx = 1
+                    renderLoans()
+                end
+                return true
+            end
+            local count = #cur_page_loans
+            if count == 0 then return true end
+            if view_mode == "list" then
+                if focused_loan_idx < count then
+                    focused_loan_idx = focused_loan_idx + 1
+                    renderLoans()
+                end
+            else
+                if focused_loan_idx + COLS <= count then
+                    focused_loan_idx = focused_loan_idx + COLS
+                    renderLoans()
+                elseif focused_loan_idx < count and focused_loan_idx <= math.floor((count - 1) / COLS) * COLS then
+                    focused_loan_idx = count
+                    renderLoans()
+                end
+            end
+            return true
+        end
+
+        active_loans_overlay.onLeft = function()
+            if ensureFocusVisible() then return true end
+            if focus_zone == "header" then
+                if focused_header_idx > 1 then
+                    focused_header_idx = focused_header_idx - 1
+                    renderLoans()
+                elseif current_page > 1 then
+                    return active_loans_overlay:onPrevPage()
+                end
+                return true
+            end
+            if view_mode == "list" then
+                return active_loans_overlay:onPrevPage()
+            elseif focused_loan_idx > 1 then
+                focused_loan_idx = focused_loan_idx - 1
+                renderLoans()
+                return true
+            elseif current_page > 1 then
+                return active_loans_overlay:onPrevPage()
+            end
+        end
+
+        active_loans_overlay.onRight = function()
+            if ensureFocusVisible() then return true end
+            if focus_zone == "header" then
+                if focused_header_idx < 2 then
+                    focused_header_idx = focused_header_idx + 1
+                    renderLoans()
+                elseif current_page < total_pages then
+                    return active_loans_overlay:onNextPage()
+                end
+                return true
+            end
+            if view_mode == "list" then
+                return active_loans_overlay:onNextPage()
+            elseif focused_loan_idx < #cur_page_loans then
+                focused_loan_idx = focused_loan_idx + 1
+                renderLoans()
+                return true
+            elseif current_page < total_pages then
+                return active_loans_overlay:onNextPage()
+            end
+        end
+
+        active_loans_overlay.onPress = function()
+            if focus_zone == "header" then
+                if focused_header_idx == 1 then
+                    local next_mode = (view_mode == "cover") and "list" or "cover"
+                    State.setLoansViewMode(next_mode)
+                    current_page = 1
+                    focused_loan_idx = 1
+                    renderLoans()
+                else
+                    closeLoansBrowser(true)
+                end
+                return true
+            end
+            return activateLoanAtIndex(focused_loan_idx)
+        end
+
+        active_loans_overlay.onViewToggleKey = function()
+            local next_mode = (view_mode == "cover") and "list" or "cover"
+            State.setLoansViewMode(next_mode)
+            current_page = 1
+            focused_loan_idx = 1
+            renderLoans()
+            return true
+        end
+
+        active_loans_overlay.onNum1 = function() return activateLoanAtIndex(1) end
+        active_loans_overlay.onNum2 = function() return activateLoanAtIndex(2) end
+        active_loans_overlay.onNum3 = function() return activateLoanAtIndex(3) end
+        active_loans_overlay.onNum4 = function() return activateLoanAtIndex(4) end
+        active_loans_overlay.onNum5 = function() return activateLoanAtIndex(5) end
+        active_loans_overlay.onNum6 = function() return activateLoanAtIndex(6) end
+        active_loans_overlay.onNum7 = function() return activateLoanAtIndex(7) end
+        active_loans_overlay.onNum8 = function() return activateLoanAtIndex(8) end
+        active_loans_overlay.onNum9 = function() return activateLoanAtIndex(9) end
+
+        active_loans_overlay.onSwipe = function(self, arg, ges)
+            if is_touch_device then focus_visible = false end
+            if ges and (ges.direction == "west" or ges.direction == "south") then
+                if current_page < total_pages then
+                    current_page = current_page + 1
+                    focused_loan_idx = 1
+                    renderLoans()
+                    return true
+                end
+            elseif ges and (ges.direction == "east" or ges.direction == "north") then
+                if current_page > 1 then
+                    current_page = current_page - 1
+                    focused_loan_idx = 1
+                    renderLoans()
+                    return true
+                end
+            end
+        end
+
+        active_loans_overlay.onClose = function()
+            closeLoansBrowser(true)
+            return true
+        end
+
+        UIManager:show(active_loans_overlay, "ui")
+    end
+
+    renderLoans()
 end
 
 -- ---------------------------------------------------------------------------
@@ -2145,46 +3235,6 @@ function M.showSettingsDialog(plugin_instance, on_close_cb)
             width = inner_w,
             acsm_hint_text,
         })
-
-        -- Default Loan Days Row
-        local loan_days = State.getDrmDefaultLoanDays()
-        local loan_days_right = TextWidget:new{
-            text = _("%d days ›", loan_days),
-            face = Font:getFace("cfont", theme.subtext_font_size or 14),
-            fgcolor = theme.color_label_dim,
-        }
-        table.insert(content_vg, create_setting_row(_("Default Loan Expiry"), loan_days_right, function()
-            local days_dlg
-            days_dlg = InputDialog:new{
-                title = _("Default Loan Duration (Days)"),
-                input = tostring(loan_days),
-                type = "number",
-                buttons = {
-                    {
-                        {
-                            text = _("Cancel"),
-                            id = "close",
-                            callback = function() UIManager:close(days_dlg) end,
-                        },
-                        {
-                            text = _("Save"),
-                            is_primary = true,
-                            callback = function()
-                                local d = tonumber(days_dlg:getInputText())
-                                if d and d > 0 and d <= 365 then
-                                    State.setDrmDefaultLoanDays(d)
-                                    UIManager:close(days_dlg)
-                                    refresh()
-                                else
-                                    M.showToast(_("Please enter a valid number of days (1-365)"), 3)
-                                end
-                            end,
-                        },
-                    },
-                },
-            }
-            UIManager:show(days_dlg)
-        end))
 
         -- ===================================================================
         -- SECTION 3: CONNECTION & BROWSERS
@@ -2826,7 +3876,11 @@ function M.receiveFiles(plugin_instance, is_background, on_done)
                     fulfill_toast = nil
                 end
                 if ok_f and fulfill_res then
-                    local exp = DRM.extractLoanExpiry(meta or item.path)
+                    local exp = DRM.extractLoanExpiry(meta or item.path, extra_tracked and extra_tracked.license_token_xml)
+                    if meta and meta.creator and meta.creator ~= "" then
+                        extra_tracked = extra_tracked or {}
+                        extra_tracked.author = meta.creator
+                    end
                     State.trackBook(final_path, exp, meta and meta.title, extra_tracked)
 
                     if State.getDrmDeleteAcsmAfter() then
